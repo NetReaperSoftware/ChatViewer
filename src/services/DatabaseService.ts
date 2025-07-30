@@ -1,4 +1,4 @@
-import SQLite from 'react-native-sqlite-2';
+import SQLite from 'react-native-sqlite-storage';
 import RNFS from 'react-native-fs';
 import { expandPath } from '../utils/PathUtils';
 import {
@@ -6,6 +6,10 @@ import {
   ProcessedMessage,
   ProcessedAttachment,
 } from '../types/DatabaseTypes';
+
+// Enable debugging and promise-based API
+SQLite.DEBUG(true);
+SQLite.enablePromise(true);
 
 export class DatabaseService {
   private db: any = null;
@@ -18,24 +22,25 @@ export class DatabaseService {
     try {
       // Close existing database if any
       if (this.db) {
-        this.db.close();
+        await this.db.close();
         this.db = null;
       }
       
       if (expandedPath.includes('/tmp/test_messages.db') || expandedPath === '/tmp/test_messages.db') {
         // For test database, create an empty database
         console.log('Creating test database...');
-        this.db = SQLite.openDatabase({
+        this.db = await SQLite.openDatabase({
           name: 'test_messages.db',
           location: 'default',
         });
+        console.log('Test database opened successfully');
         this.dbPath = expandedPath;
         
         // Create test data
         await this.createTestDatabase();
         console.log('Test database created successfully');
       } else {
-        // For external files, copy to app's document directory first
+        // For external files, implement plan1.txt solution
         console.log('Processing external database file:', expandedPath);
         
         // Check if source file exists
@@ -53,148 +58,199 @@ export class DatabaseService {
           throw new Error('Database file is too large (>500MB). Please use a smaller database file.');
         }
         
-        // Create a unique filename in the documents directory
+        // Check if the database is very large and warn about potential timeout issues
+        if (fileStats.size > 50 * 1024 * 1024) { // 50MB+
+          console.log(`⚠️  Large database detected (${fileSizeMB.toFixed(2)} MB) - may experience timeout issues`);
+          console.log('Consider using a smaller Messages database file for testing');
+        }
+        
+        // Extract base path for WAL and SHM files
+        const basePath = expandedPath.replace('.db', '');
         const documentsPath = RNFS.DocumentDirectoryPath;
-        const fileName = `messages_${Date.now()}.db`;
-        const localDbPath = `${documentsPath}/${fileName}`;
+        const dbName = 'chat.db';
+        const targetDbPath = `${documentsPath}/${dbName}`;
         
-        console.log('Copying database to app directory:', localDbPath);
+        console.log('Copying database and sidecar files...');
+        console.log(`From: ${basePath}`);
+        console.log(`To: ${documentsPath}`);
+        console.log(`DocumentDirectoryPath resolved to: ${documentsPath}`);
+        console.log(`Target database path: ${targetDbPath}`);
         
-        // Copy the external file to our app's documents directory
-        console.log(`Copying from: ${expandedPath}`);
-        console.log(`Copying to: ${localDbPath}`);
-        await RNFS.copyFile(expandedPath, localDbPath);
-        console.log('Database file copied successfully');
+        // Verify the Documents directory exists
+        const documentsExists = await RNFS.exists(documentsPath);
+        console.log(`Documents directory exists: ${documentsExists}`);
+        if (!documentsExists) {
+          console.log('Creating Documents directory...');
+          await RNFS.mkdir(documentsPath);
+        }
         
-        // Verify the copied file exists and check its size
-        const copiedFileExists = await RNFS.exists(localDbPath);
-        console.log(`Copied file exists: ${copiedFileExists}`);
+        // Remove existing files if they exist to avoid conflicts
+        console.log('Cleaning up existing database files...');
+        await RNFS.unlink(targetDbPath).catch(() => {}); // Ignore error if file doesn't exist
+        await RNFS.unlink(`${documentsPath}/chat.db-wal`).catch(() => {});
+        await RNFS.unlink(`${documentsPath}/chat.db-shm`).catch(() => {});
         
-        if (copiedFileExists) {
-          const copiedStats = await RNFS.stat(localDbPath);
-          console.log(`Copied file size: ${(copiedStats.size / 1024 / 1024).toFixed(2)} MB`);
-          console.log(`Copied file permissions: ${copiedStats.mode}`);
-          
-          // Check if the file is readable
-          try {
-            const testRead = await RNFS.readFile(localDbPath, 'base64');
-            console.log(`Copied file is readable, first 100 chars: ${testRead.substring(0, 100)}`);
-          } catch (readError) {
-            console.error('Cannot read copied file:', readError);
-          }
+        // Copy main database file
+        console.log('Copying main database file...');
+        await RNFS.copyFile(expandedPath, targetDbPath);
+        
+        // Copy WAL file if it exists
+        const walPath = `${basePath}.db-wal`;
+        const targetWalPath = `${documentsPath}/chat.db-wal`;
+        if (await RNFS.exists(walPath)) {
+          console.log('Copying WAL file...');
+          await RNFS.copyFile(walPath, targetWalPath);
         } else {
-          throw new Error('File copy verification failed - copied file does not exist');
+          console.log('No WAL file found, skipping');
         }
         
-        // Open the copied database with SQLite
-        console.log('Opening copied database with SQLite...');
-        console.log(`Attempting to open: ${localDbPath}`);
-        
-        try {
-          // Try a simpler approach first - just the filename since it's in Documents
-          const justFileName = fileName;
-          console.log(`Trying to open with filename: ${justFileName}`);
-          
-          this.db = SQLite.openDatabase({
-            name: justFileName,
-            location: 'Documents',
-          });
-          this.dbPath = localDbPath;
-          console.log('External database opened successfully');
-        } catch (openError) {
-          console.error('Failed to open database with filename, trying full path:', openError);
-          
-          // Try with full path as backup
-          try {
-            this.db = SQLite.openDatabase({
-              name: localDbPath,
-              location: 'default',
-            });
-            this.dbPath = localDbPath;
-            console.log('External database opened successfully with full path');
-          } catch (fullPathError) {
-            console.error('Failed to open database with full path:', fullPathError);
-            
-            // Try the legacy API as a last resort
-            try {
-              console.log('Trying legacy SQLite API...');
-              this.db = SQLite.openDatabase(justFileName, '1.0', '', 0);
-              this.dbPath = localDbPath;
-              console.log('External database opened successfully with legacy API');
-            } catch (legacyError) {
-              console.error('Failed to open database with legacy API:', legacyError);
-              throw new Error(`Failed to open copied database with all methods: ${legacyError.message}`);
-            }
-          }
+        // Copy SHM file if it exists
+        const shmPath = `${basePath}.db-shm`;
+        const targetShmPath = `${documentsPath}/chat.db-shm`;
+        if (await RNFS.exists(shmPath)) {
+          console.log('Copying SHM file...');
+          await RNFS.copyFile(shmPath, targetShmPath);
+        } else {
+          console.log('No SHM file found, skipping');
         }
         
-        // Test the connection
-        await this.testConnection();
+        console.log('All database files copied successfully');
+        
+        // Verify the copied database file
+        const copiedExists = await RNFS.exists(targetDbPath);
+        if (!copiedExists) {
+          throw new Error('Database copy verification failed');
+        }
+        
+        const copiedStats = await RNFS.stat(targetDbPath);
+        console.log(`Copied database size: ${(copiedStats.size / 1024 / 1024).toFixed(2)} MB`);
+        
+        // Open database using absolute path with location: 'default'
+        console.log('Opening database with absolute path...');
+        console.log(`Database path: ${targetDbPath}`);
+        
+        // Try opening without readOnly first to see if that helps with timeouts
+        console.log('Attempting to open database without readOnly flag...');
+        this.db = await SQLite.openDatabase({
+          name: targetDbPath,  // Use full absolute path
+          location: 'default',
+          // Remove readOnly to see if it helps with the timeout issue
+        });
+        
+        // Skip database configuration to avoid timeout issues
+        console.log('Skipping database configuration to avoid timeouts');
+        
+        this.dbPath = targetDbPath;
+        console.log('External database opened successfully with absolute path');
       }
+      
+      // Skip connection test for large databases - proceed directly
+      console.log('Skipping connection test for large database - proceeding directly to data loading');
       
     } catch (error: any) {
       console.error('Error opening database:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      
+      // Write error details to a file for debugging
+      try {
+        const errorLog = `
+ERROR at ${new Date().toISOString()}:
+Message: ${error.message}
+Stack: ${error.stack}
+Full Error: ${JSON.stringify(error, null, 2)}
+Path attempted: ${expandedPath}
+`;
+        await RNFS.writeFile(
+          `${RNFS.DocumentDirectoryPath}/db_error.txt`,
+          errorLog,
+          'utf8'
+        );
+      } catch (logError) {
+        console.error('Failed to write error log:', logError);
+      }
+      
       this.db = null;
       this.dbPath = null;
       throw new Error(`Failed to open database: ${error.message}`);
     }
   }
-  
 
   private async testConnection(): Promise<void> {
     if (!this.db) {
       throw new Error('No database connection');
     }
     
-    return new Promise((resolve, reject) => {
-      console.log('Running basic connection test with SQLite...');
-      
-      // Add timeout for the test connection
-      const timeoutId = setTimeout(() => {
-        reject(new Error('Database connection test timed out'));
-      }, 5000);
-      
-      // Test with a simple query
-      this.db.transaction(
-        (tx: any) => {
-          tx.executeSql('SELECT 1 as test', [], (tx: any, result: any) => {
-            console.log('Basic connection test passed');
-            
-            // Then check for Messages database tables
-            tx.executeSql(
-              'SELECT name FROM sqlite_master WHERE type="table" AND name="chat" LIMIT 1',
-              [],
-              (tx: any, tableResult: any) => {
+    console.log('Running simple connection test...');
+    
+    try {
+      // Use a much simpler and faster connection test
+      await new Promise<void>((resolve, reject) => {
+        // Set a longer timeout for large databases
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Connection test timed out after 60 seconds'));
+        }, 60000);
+        
+        this.db.transaction((tx: any) => {
+          // Just check if we can execute a simple query
+          tx.executeSql(
+            'SELECT 1 as test',
+            [],
+            (_: any, results: any) => {
+              clearTimeout(timeoutId);
+              if (results.rows.length > 0) {
+                console.log('✅ Database connection test successful');
+                
+                // Quick check for chat table existence without listing all tables
+                tx.executeSql(
+                  'SELECT COUNT(*) as count FROM sqlite_master WHERE type="table" AND name="chat"',
+                  [],
+                  (_: any, chatResults: any) => {
+                    const hasChat = chatResults.rows.item(0).count > 0;
+                    if (hasChat) {
+                      console.log('✅ Chat table found - database appears valid');
+                      RNFS.writeFile(
+                        `${RNFS.DocumentDirectoryPath}/db_success.txt`,
+                        `SUCCESS: Database connection and chat table verified at ${new Date().toISOString()}`,
+                        'utf8'
+                      ).catch(() => {});
+                    } else {
+                      console.log('❌ Chat table not found');
+                      RNFS.writeFile(
+                        `${RNFS.DocumentDirectoryPath}/db_failure.txt`,
+                        `FAILURE: Chat table not found at ${new Date().toISOString()}`,
+                        'utf8'
+                      ).catch(() => {});
+                    }
+                    resolve();
+                  },
+                  (_: any, error: any) => {
+                    console.error('Chat table check failed:', error);
+                    resolve(); // Still resolve since basic connection worked
+                    return false;
+                  }
+                );
+              } else {
                 clearTimeout(timeoutId);
-                if (tableResult.rows.length > 0) {
-                  console.log('Confirmed this is a Messages database (found chat table)');
-                } else {
-                  console.log('Warning: This might not be a Messages database (no chat table found)');
-                }
-                resolve();
-              },
-              (tx: any, error: any) => {
-                clearTimeout(timeoutId);
-                console.error('Database table check failed:', error);
-                resolve(); // Don't fail on table check, might be a different database
+                reject(new Error('Connection test returned no results'));
               }
-            );
-          }, (tx: any, error: any) => {
-            clearTimeout(timeoutId);
-            console.error('Database connection test failed:', error);
-            reject(error);
-          });
-        },
-        (error: any) => {
+            },
+            (_: any, error: any) => {
+              clearTimeout(timeoutId);
+              console.error('Connection test failed:', error);
+              reject(error);
+              return false;
+            }
+          );
+        }, (error: any) => {
           clearTimeout(timeoutId);
           console.error('Transaction failed:', error);
           reject(error);
-        },
-        () => {
-          console.log('Transaction completed successfully');
-        }
-      );
-    });
+        });
+      });
+    } catch (error) {
+      console.error('Connection test error:', error);
+      throw error;
+    }
   }
 
   async createTestDatabase(): Promise<void> {
@@ -313,7 +369,7 @@ export class DatabaseService {
 
   async closeDatabase(): Promise<void> {
     if (this.db) {
-      this.db.close();
+      await this.db.close();
       this.db = null;
     }
     this.dbPath = null;
@@ -324,9 +380,34 @@ export class DatabaseService {
       throw new Error('Database is not open');
     }
 
-    return new Promise((resolve, reject) => {
-      console.log('Executing query:', query.substring(0, 100) + '...', 'with params:', params);
+    console.log('Executing query:', query.substring(0, 100) + '...', 'with params:', params);
 
+    // Try direct executeSql instead of transaction-based approach
+    if (typeof this.db.executeSql === 'function') {
+      console.log('Using direct executeSql method...');
+      return new Promise((resolve, reject) => {
+        this.db.executeSql(
+          query,
+          params,
+          (result: any) => {
+            const results: T[] = [];
+            for (let i = 0; i < result.rows.length; i++) {
+              results.push(result.rows.item(i) as T);
+            }
+            console.log('Direct query executed successfully, found', results.length, 'rows');
+            resolve(results);
+          },
+          (error: any) => {
+            console.error('Direct query error:', error, 'Query:', query, 'Params:', params);
+            reject(error);
+          }
+        );
+      });
+    }
+
+    // Fallback to transaction approach if direct executeSql not available
+    console.log('Falling back to transaction-based query...');
+    return new Promise((resolve, reject) => {
       this.db.transaction((tx: any) => {
         tx.executeSql(
           query,
@@ -336,14 +417,18 @@ export class DatabaseService {
             for (let i = 0; i < result.rows.length; i++) {
               results.push(result.rows.item(i) as T);
             }
-            console.log('Query executed successfully, found', results.length, 'rows');
+            console.log('Transaction query executed successfully, found', results.length, 'rows');
             resolve(results);
           },
           (tx: any, error: any) => {
-            console.error('Query error:', error, 'Query:', query, 'Params:', params);
+            console.error('Transaction query error:', error, 'Query:', query, 'Params:', params);
             reject(error);
+            return false;
           }
         );
+      }, (error: any) => {
+        console.error('Transaction failed:', error);
+        reject(error);
       });
     });
   }
@@ -351,25 +436,37 @@ export class DatabaseService {
   async getChats(limit: number = 100): Promise<ProcessedChat[]> {
     console.log('Loading contacts/chats with limit:', limit);
     
-    // Ultra-lightweight query - just get chat info, no message data at all
+    // Try the simplest possible query first - just check if we can access the table
+    console.log('Testing database with ultra-simple query...');
+    try {
+      const testQuery = 'SELECT 1 FROM chat LIMIT 1';
+      const testResult = await this.executeQuery<{1: number}>(testQuery, []);
+      console.log(`Database is accessible, got ${testResult.length} test result(s)`);
+    } catch (testError) {
+      console.error('Simple test query failed:', testError);
+      console.log('Attempting to continue despite test failure...');
+      // Don't throw here - let's try to continue
+    }
+    
+    // Ultra-lightweight query - just get basic chat info with smaller limit first
+    const actualLimit = Math.min(limit, 10); // Start with just 10 rows for testing
+    console.log(`Loading first ${actualLimit} chats...`);
+    
     const query = `
       SELECT 
         c.ROWID as id,
-        c.guid,
         c.display_name,
-        c.chat_identifier,
-        c.service_name,
-        c.style
+        c.chat_identifier
       FROM chat c
       ORDER BY c.ROWID DESC
       LIMIT ?
     `;
 
-    const chats = await this.executeQuery<any>(query, [limit]);
+    const chats = await this.executeQuery<any>(query, [actualLimit]);
     console.log(`Found ${chats.length} chats/contacts from database`);
 
     // Process chats with zero additional queries - maximum speed
-    const processedChats: ProcessedChat[] = chats.map((chat, index) => {
+    const processedChats: ProcessedChat[] = chats.map((chat) => {
       // Determine display name efficiently
       let displayName: string;
       

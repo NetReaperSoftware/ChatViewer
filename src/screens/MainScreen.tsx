@@ -5,7 +5,7 @@ import {
   Alert,
   useColorScheme,
 } from 'react-native';
-import { DatabaseService } from '../services/DatabaseService';
+import { CustomDatabaseService } from '../services/CustomDatabaseService';
 import { DatabasePicker } from '../components/DatabasePicker';
 import { ConversationList } from '../components/ConversationList';
 import { MessageThread } from '../components/MessageThread';
@@ -13,7 +13,7 @@ import { ChatDetails } from '../components/ChatDetails';
 import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
 
 export const MainScreen: React.FC = () => {
-  const [dbService] = useState(() => new DatabaseService());
+  const [dbService] = useState(() => new CustomDatabaseService());
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [chats, setChats] = useState<ProcessedChat[]>([]);
@@ -25,7 +25,7 @@ export const MainScreen: React.FC = () => {
     return () => {
       // Cleanup database connection on unmount
       if (dbService.isConnected()) {
-        dbService.closeDatabase();
+        dbService.closeDatabase().catch(() => {}); // Ignore cleanup errors
       }
     };
   }, [dbService]);

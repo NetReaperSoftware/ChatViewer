@@ -1,0 +1,58 @@
+ LOG  Running "ChatViewer" with {"rootTag":81,"initialProps":{}}
+ LOG  Callback based runtime ready
+ LOG  Opening database...
+ LOG  Attempting to open database at: /Users/daniel/Downloads/Messages/chat.db
+ LOG  Processing external database file: /Users/daniel/Downloads/Messages/chat.db
+ LOG  Source file size: 133.64 MB
+ LOG  Attempting to open database directly from original location...
+ LOG  Attempting to open database with react-native-sqlite-storage...
+ LOG  Skipping external file access - forcing copy approach
+ ERROR  Failed to open database directly, trying copy method: [Error: Forcing copy approach for better compatibility]
+ LOG  Copying database to app directory: /Users/daniel/Documents/messages_1753893018766.db
+ LOG  Copying from: /Users/daniel/Downloads/Messages/chat.db
+ LOG  Copying to: /Users/daniel/Documents/messages_1753893018766.db
+ LOG  Database file copied successfully
+ LOG  Copied file exists: true
+ LOG  Copied file size: 133.64 MB
+ LOG  Copied file permissions: 420
+ LOG  Opening copied database with SQLite...
+ LOG  Attempting to open: /Users/daniel/Documents/messages_1753893018766.db
+ LOG  Opening copied database with simple approach...
+ LOG  Using filename for database: messages_1753893018766.db
+ LOG  OPEN database: messages_1753893018766.db
+ LOG  SQLite.open({"name":"messages_1753893018766.db","location":"default","dblocation":"nosync"})
+ LOG  Copied database object type: object
+ LOG  Copied database methods: ["openargs", "dbname", "openSuccess", "openError"]
+ LOG  External database opened successfully from copied location
+ LOG  Running basic connection test with SQLite...
+ LOG  Database object type: object
+ LOG  Available methods: ["openargs", "dbname", "openSuccess", "openError"]
+ LOG  Using direct executeSql method...
+ LOG  new transaction is waiting for open operation
+ LOG  SQLite.backgroundExecuteSqlBatch({"dbargs":{"dbname":"messages_1753893018766.db"},"executes":[{"qid":1111,"sql":"SELECT 1","params":[]},{"qid":1111,"sql":"SELECT name FROM sqlite_master WHERE type=\"table\" ORDER BY name","params":[]}]})
+ LOG  Found 0 tables in database:
+ LOG  Loading contacts and conversations...
+ LOG  Loading contacts/chats with limit: 100
+ LOG  Executing query: 
+      SELECT 
+        c.ROWID as id,
+        c.guid,
+        c.display_name,
+        c.chat_identif... with params: [100]
+ LOG  Using direct executeSql for query...
+ LOG  SQLite.backgroundExecuteSqlBatch({"dbargs":{"dbname":"messages_1753893018766.db"},"executes":[{"qid":1111,"sql":"SELECT 1","params":[]},{"qid":1111,"sql":"\n      SELECT \n        c.ROWID as id,\n        c.guid,\n        c.display_name,\n        c.chat_identifier,\n        c.service_name,\n        c.style\n      FROM chat c\n      ORDER BY c.ROWID DESC\n      LIMIT ?\n    ","params":[100]}]})
+ ERROR  Query error: {"code": 5, "message": "no such table: chat"} Query: 
+      SELECT 
+        c.ROWID as id,
+        c.guid,
+        c.display_name,
+        c.chat_identifier,
+        c.service_name,
+        c.style
+      FROM chat c
+      ORDER BY c.ROWID DESC
+      LIMIT ?
+     Params: [100]
+ LOG  warning - exception while invoking a callback: {"code":5}
+ ERROR  Error connecting to database: {"code": 5, "message": "no such table: chat"}
+

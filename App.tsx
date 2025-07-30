@@ -13,6 +13,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { MainScreen } from './src/screens/MainScreen';
+import { CustomDatabaseTest } from './src/components/CustomDatabaseTest';
 
 function App(): JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';

@@ -1,0 +1,71 @@
+✅ Best Practice at This Point
+➤ Avoid createFromLocation entirely.
+Instead, open the database directly from the copied location (like your RNFS.DocumentDirectoryPath) using the full absolute file path.
+
+✅ 1. Copy the DB and sidecar files manually
+If you haven't already, do this first:
+
+ts
+Copy
+Edit
+const sourceBase = '/Users/daniel/Downloads/Messages/chat';
+const destDir = RNFS.DocumentDirectoryPath;
+
+await RNFS.copyFile(`${sourceBase}.db`, `${destDir}/chat.db`);
+await RNFS.copyFile(`${sourceBase}.db-shm`, `${destDir}/chat.db-shm`);
+await RNFS.copyFile(`${sourceBase}.db-wal`, `${destDir}/chat.db-wal`);
+✅ 2. Open it from that exact path
+Instead of using createFromLocation, just use the full file path with react-native-sqlite-storage like so:
+
+ts
+Copy
+Edit
+import SQLite from 'react-native-sqlite-storage';
+
+SQLite.enablePromise(true);
+
+const db = await SQLite.openDatabase({
+  name: 'chat.db',
+  location: 'Documents', // This tells it to look in RNFS.DocumentDirectoryPath
+});
+But if that's still not working (because location: 'Documents' might resolve incorrectly on macOS), then bypass the name/location API and use the absolute file path directly (undocumented trick):
+
+ts
+Copy
+Edit
+const dbPath = `${RNFS.DocumentDirectoryPath}/chat.db`;
+
+const db = await SQLite.openDatabase({
+  name: dbPath,  // use full path
+  location: 'default',
+  readOnly: true,
+});
+💡 Tip: SQLite will accept a full absolute path if location is 'default', even though the docs don't advertise this.
+
+🚫 Don't use createFromLocation
+It’s designed for bundling .db files into the app during build time, not for external DBs like chat.db from iMessage.
+
+🧪 Final sanity check
+Try running this after opening the DB:
+
+ts
+Copy
+Edit
+db.transaction(tx => {
+  tx.executeSql(
+    'SELECT name FROM sqlite_master WHERE type="table";',
+    [],
+    (_, results) => {
+      console.log("Tables:", results.rows.raw());
+    },
+    (_, err) => {
+      console.log("Error checking tables:", err);
+      return false;
+    }
+  );
+});
+If this still fails with no such table, then:
+
+The WAL files may not have been loaded (try checkpointing manually)
+
+Or the absolute path was slightly off (add a log before openDatabase to check)

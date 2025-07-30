@@ -74,6 +74,14 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
           },
         },
         {
+          text: 'Working DB',
+          onPress: () => {
+            const workingPath = '/Users/daniel/Documents/Messages/chat.db';
+            setSelectedPath(workingPath);
+            onDatabaseSelected(workingPath);
+          },
+        },
+        {
           text: 'Manual Path',
           onPress: () => {
             const defaultPath = getDefaultMessagesPath();
@@ -138,6 +146,9 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
           </Text>
           <Text style={styles.infoText}>
             • Test DB: Create a sample database for testing
+          </Text>
+          <Text style={styles.infoText}>
+            • Working DB: Use the known working database (643 chats)
           </Text>
           <Text style={styles.infoText}>
             • Manual Path: Enter path directly (~/Library/Messages/chat.db)

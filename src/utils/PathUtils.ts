@@ -21,7 +21,7 @@ export const getHomeDirectory = (): string => {
 
 export const getDefaultMessagesPath = (): string => {
   const homeDir = getHomeDirectory();
-  return `${homeDir}/Library/Messages/chat.db`;
+  return `${homeDir}/Downloads/Messages/chat.db`;
 };
 
 export const fileExists = async (path: string): Promise<boolean> => {
