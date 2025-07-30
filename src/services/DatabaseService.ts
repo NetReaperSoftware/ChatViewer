@@ -1,6 +1,6 @@
 import SQLite from 'react-native-sqlite-2';
+import RNFS from 'react-native-fs';
 import { expandPath } from '../utils/PathUtils';
-import type { WebsqlDatabase } from 'react-native-sqlite-2';
 import {
   ProcessedChat,
   ProcessedMessage,
@@ -8,100 +8,192 @@ import {
 } from '../types/DatabaseTypes';
 
 export class DatabaseService {
-  private db: WebsqlDatabase | null = null;
+  private db: any = null;
   private dbPath: string | null = null;
 
   async openDatabase(path: string): Promise<void> {
     const expandedPath = expandPath(path);
     console.log('Attempting to open database at:', expandedPath);
     
-    return new Promise((resolve, reject) => {
-      try {
-        // Close existing database if any
-        if (this.db) {
-          this.db = null;
-        }
-        
-        // Determine database name based on path
-        let dbName: string;
-        if (expandedPath.includes('/tmp/test_messages.db') || expandedPath === '/tmp/test_messages.db') {
-          // For test database, use a simple filename - it will be created in app's documents
-          dbName = 'test_messages.db';
-          console.log('Using test database mode with filename:', dbName);
-        } else {
-          // For actual files, try to use the full path
-          dbName = expandedPath;
-          console.log('Using full path mode:', dbName);
-        }
-        
-        this.db = SQLite.openDatabase(dbName, '1.0', '', 1);
-        this.dbPath = expandedPath;
-        console.log('Database object created for:', dbName);
-        
-        // For test databases, create the test data first, then test connection
-        if (expandedPath.includes('/tmp/test_messages.db') || expandedPath === '/tmp/test_messages.db') {
-          console.log('Creating test database schema and data...');
-          this.createTestDatabase()
-            .then(() => {
-              console.log('Test database created, testing connection...');
-              return this.testConnection();
-            })
-            .then(() => {
-              console.log('Database connection test successful');
-              resolve();
-            })
-            .catch((error) => {
-              console.error('Error creating test database or testing connection:', error);
-              this.db = null;
-              this.dbPath = null;
-              reject(new Error(`Failed to create test database: ${error.message}`));
-            });
-        } else {
-          // For existing databases, just test the connection
-          this.testConnection()
-            .then(() => {
-              console.log('Database connection test successful');
-              resolve();
-            })
-            .catch((testError) => {
-              console.error('Database connection test failed:', testError);
-              this.db = null;
-              this.dbPath = null;
-              reject(new Error(`Failed to connect to database: ${testError.message}`));
-            });
-        }
-      } catch (error: any) {
-        console.error('Error opening database:', error);
+    try {
+      // Close existing database if any
+      if (this.db) {
+        this.db.close();
         this.db = null;
-        this.dbPath = null;
-        reject(new Error(`Unable to open database file: ${error.message}`));
-      }
-    });
-  }
-  
-  private async testConnection(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('No database connection'));
-        return;
       }
       
-      // Test with a simple query to verify the database is accessible
-      this.db.readTransaction((tx) => {
-        tx.executeSql(
-          'SELECT name FROM sqlite_master WHERE type="table" LIMIT 1',
-          [],
-          (_, results) => {
-            console.log('Database connection test passed');
-            resolve();
-          },
-          (_, error) => {
+      if (expandedPath.includes('/tmp/test_messages.db') || expandedPath === '/tmp/test_messages.db') {
+        // For test database, create an empty database
+        console.log('Creating test database...');
+        this.db = SQLite.openDatabase({
+          name: 'test_messages.db',
+          location: 'default',
+        });
+        this.dbPath = expandedPath;
+        
+        // Create test data
+        await this.createTestDatabase();
+        console.log('Test database created successfully');
+      } else {
+        // For external files, copy to app's document directory first
+        console.log('Processing external database file:', expandedPath);
+        
+        // Check if source file exists
+        const fileExists = await RNFS.exists(expandedPath);
+        if (!fileExists) {
+          throw new Error(`Database file does not exist: ${expandedPath}`);
+        }
+        
+        // Get file stats to check size
+        const fileStats = await RNFS.stat(expandedPath);
+        const fileSizeMB = fileStats.size / (1024 * 1024);
+        console.log(`Source file size: ${fileSizeMB.toFixed(2)} MB`);
+        
+        if (fileStats.size > 500 * 1024 * 1024) { // 500MB limit
+          throw new Error('Database file is too large (>500MB). Please use a smaller database file.');
+        }
+        
+        // Create a unique filename in the documents directory
+        const documentsPath = RNFS.DocumentDirectoryPath;
+        const fileName = `messages_${Date.now()}.db`;
+        const localDbPath = `${documentsPath}/${fileName}`;
+        
+        console.log('Copying database to app directory:', localDbPath);
+        
+        // Copy the external file to our app's documents directory
+        console.log(`Copying from: ${expandedPath}`);
+        console.log(`Copying to: ${localDbPath}`);
+        await RNFS.copyFile(expandedPath, localDbPath);
+        console.log('Database file copied successfully');
+        
+        // Verify the copied file exists and check its size
+        const copiedFileExists = await RNFS.exists(localDbPath);
+        console.log(`Copied file exists: ${copiedFileExists}`);
+        
+        if (copiedFileExists) {
+          const copiedStats = await RNFS.stat(localDbPath);
+          console.log(`Copied file size: ${(copiedStats.size / 1024 / 1024).toFixed(2)} MB`);
+          console.log(`Copied file permissions: ${copiedStats.mode}`);
+          
+          // Check if the file is readable
+          try {
+            const testRead = await RNFS.readFile(localDbPath, 'base64');
+            console.log(`Copied file is readable, first 100 chars: ${testRead.substring(0, 100)}`);
+          } catch (readError) {
+            console.error('Cannot read copied file:', readError);
+          }
+        } else {
+          throw new Error('File copy verification failed - copied file does not exist');
+        }
+        
+        // Open the copied database with SQLite
+        console.log('Opening copied database with SQLite...');
+        console.log(`Attempting to open: ${localDbPath}`);
+        
+        try {
+          // Try a simpler approach first - just the filename since it's in Documents
+          const justFileName = fileName;
+          console.log(`Trying to open with filename: ${justFileName}`);
+          
+          this.db = SQLite.openDatabase({
+            name: justFileName,
+            location: 'Documents',
+          });
+          this.dbPath = localDbPath;
+          console.log('External database opened successfully');
+        } catch (openError) {
+          console.error('Failed to open database with filename, trying full path:', openError);
+          
+          // Try with full path as backup
+          try {
+            this.db = SQLite.openDatabase({
+              name: localDbPath,
+              location: 'default',
+            });
+            this.dbPath = localDbPath;
+            console.log('External database opened successfully with full path');
+          } catch (fullPathError) {
+            console.error('Failed to open database with full path:', fullPathError);
+            
+            // Try the legacy API as a last resort
+            try {
+              console.log('Trying legacy SQLite API...');
+              this.db = SQLite.openDatabase(justFileName, '1.0', '', 0);
+              this.dbPath = localDbPath;
+              console.log('External database opened successfully with legacy API');
+            } catch (legacyError) {
+              console.error('Failed to open database with legacy API:', legacyError);
+              throw new Error(`Failed to open copied database with all methods: ${legacyError.message}`);
+            }
+          }
+        }
+        
+        // Test the connection
+        await this.testConnection();
+      }
+      
+    } catch (error: any) {
+      console.error('Error opening database:', error);
+      this.db = null;
+      this.dbPath = null;
+      throw new Error(`Failed to open database: ${error.message}`);
+    }
+  }
+  
+
+  private async testConnection(): Promise<void> {
+    if (!this.db) {
+      throw new Error('No database connection');
+    }
+    
+    return new Promise((resolve, reject) => {
+      console.log('Running basic connection test with SQLite...');
+      
+      // Add timeout for the test connection
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Database connection test timed out'));
+      }, 5000);
+      
+      // Test with a simple query
+      this.db.transaction(
+        (tx: any) => {
+          tx.executeSql('SELECT 1 as test', [], (tx: any, result: any) => {
+            console.log('Basic connection test passed');
+            
+            // Then check for Messages database tables
+            tx.executeSql(
+              'SELECT name FROM sqlite_master WHERE type="table" AND name="chat" LIMIT 1',
+              [],
+              (tx: any, tableResult: any) => {
+                clearTimeout(timeoutId);
+                if (tableResult.rows.length > 0) {
+                  console.log('Confirmed this is a Messages database (found chat table)');
+                } else {
+                  console.log('Warning: This might not be a Messages database (no chat table found)');
+                }
+                resolve();
+              },
+              (tx: any, error: any) => {
+                clearTimeout(timeoutId);
+                console.error('Database table check failed:', error);
+                resolve(); // Don't fail on table check, might be a different database
+              }
+            );
+          }, (tx: any, error: any) => {
+            clearTimeout(timeoutId);
             console.error('Database connection test failed:', error);
             reject(error);
-            return false;
-          }
-        );
-      });
+          });
+        },
+        (error: any) => {
+          clearTimeout(timeoutId);
+          console.error('Transaction failed:', error);
+          reject(error);
+        },
+        () => {
+          console.log('Transaction completed successfully');
+        }
+      );
     });
   }
 
@@ -111,38 +203,43 @@ export class DatabaseService {
     }
 
     return new Promise((resolve, reject) => {
-      this.db!.transaction((tx) => {
+      console.log('Creating test database schema and data...');
+      
+      this.db.transaction((tx: any) => {
         // Drop existing tables to ensure clean schema
-        tx.executeSql(`DROP TABLE IF EXISTS chat_handle_join`);
-        tx.executeSql(`DROP TABLE IF EXISTS chat_message_join`);
-        tx.executeSql(`DROP TABLE IF EXISTS message_attachment_join`);
-        tx.executeSql(`DROP TABLE IF EXISTS message`);
-        tx.executeSql(`DROP TABLE IF EXISTS attachment`);
-        tx.executeSql(`DROP TABLE IF EXISTS handle`);
-        tx.executeSql(`DROP TABLE IF EXISTS chat`);
+        const dropTables = [
+          'DROP TABLE IF EXISTS chat_handle_join',
+          'DROP TABLE IF EXISTS chat_message_join', 
+          'DROP TABLE IF EXISTS message_attachment_join',
+          'DROP TABLE IF EXISTS message',
+          'DROP TABLE IF EXISTS attachment',
+          'DROP TABLE IF EXISTS handle',
+          'DROP TABLE IF EXISTS chat'
+        ];
+
+        // Execute drop statements
+        dropTables.forEach(sql => {
+          tx.executeSql(sql, [], null, (tx: any, error: any) => {
+            console.log('Error dropping table:', error);
+          });
+        });
 
         // Create test tables with correct Messages schema
-        tx.executeSql(`
-          CREATE TABLE chat (
+        const createTables = [
+          `CREATE TABLE chat (
             ROWID INTEGER PRIMARY KEY,
             guid TEXT,
             display_name TEXT,
             chat_identifier TEXT,
             service_name TEXT,
             style INTEGER
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE handle (
+          )`,
+          `CREATE TABLE handle (
             ROWID INTEGER PRIMARY KEY,
             id TEXT,
             service TEXT
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE message (
+          )`,
+          `CREATE TABLE message (
             ROWID INTEGER PRIMARY KEY,
             text TEXT,
             attributedBody BLOB,
@@ -150,76 +247,64 @@ export class DatabaseService {
             date INTEGER,
             handle_id INTEGER,
             cache_has_attachments INTEGER
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE chat_message_join (
+          )`,
+          `CREATE TABLE chat_message_join (
             chat_id INTEGER,
             message_id INTEGER
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE chat_handle_join (
+          )`,
+          `CREATE TABLE chat_handle_join (
             chat_id INTEGER,
-            handle_id INTEGER
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE attachment (
+            handle_id INTEGER  
+          )`,
+          `CREATE TABLE attachment (
             ROWID INTEGER PRIMARY KEY,
             filename TEXT,
             mime_type TEXT,
             total_bytes INTEGER,
             is_sticker INTEGER
-          )
-        `);
-
-        tx.executeSql(`
-          CREATE TABLE message_attachment_join (
+          )`,
+          `CREATE TABLE message_attachment_join (
             message_id INTEGER,
             attachment_id INTEGER
-          )
-        `);
+          )`
+        ];
+
+        // Execute create table statements
+        createTables.forEach(sql => {
+          tx.executeSql(sql, [], null, (tx: any, error: any) => {
+            console.error('Error creating table:', error);
+          });
+        });
 
         // Insert sample data
-        tx.executeSql(`
-          INSERT INTO chat (ROWID, guid, display_name, chat_identifier, service_name, style) 
-          VALUES (1, 'test-chat-1', 'Test Chat', '+1234567890', 'iMessage', 45)
-        `);
+        const insertStatements = [
+          `INSERT INTO chat (ROWID, guid, display_name, chat_identifier, service_name, style) 
+           VALUES (1, 'test-chat-1', 'Test Chat', '+1234567890', 'iMessage', 45)`,
+          `INSERT INTO handle (ROWID, id, service) 
+           VALUES (1, '+1234567890', 'iMessage')`,
+          `INSERT INTO message (ROWID, text, attributedBody, is_from_me, date, handle_id, cache_has_attachments) 
+           VALUES (1, 'Hello, this is a test message!', NULL, 0, 0, 1, 0)`,
+          `INSERT INTO message (ROWID, text, attributedBody, is_from_me, date, handle_id, cache_has_attachments) 
+           VALUES (2, 'This is my reply', NULL, 1, 1, 1, 0)`,
+          `INSERT INTO chat_message_join (chat_id, message_id) 
+           VALUES (1, 1)`,
+          `INSERT INTO chat_message_join (chat_id, message_id) 
+           VALUES (1, 2)`,
+          `INSERT INTO chat_handle_join (chat_id, handle_id) 
+           VALUES (1, 1)`
+        ];
 
-        tx.executeSql(`
-          INSERT INTO handle (ROWID, id, service) 
-          VALUES (1, '+1234567890', 'iMessage')
-        `);
+        // Execute insert statements
+        insertStatements.forEach(sql => {
+          tx.executeSql(sql, [], null, (tx: any, error: any) => {
+            console.error('Error inserting data:', error);
+          });
+        });
 
-        tx.executeSql(`
-          INSERT INTO message (ROWID, text, attributedBody, is_from_me, date, handle_id, cache_has_attachments) 
-          VALUES (1, 'Hello, this is a test message!', NULL, 0, 0, 1, 0)
-        `);
-
-        tx.executeSql(`
-          INSERT INTO message (ROWID, text, attributedBody, is_from_me, date, handle_id, cache_has_attachments) 
-          VALUES (2, 'This is my reply', NULL, 1, 1, 1, 0)
-        `);
-
-        tx.executeSql(`
-          INSERT INTO chat_message_join (chat_id, message_id) 
-          VALUES (1, 1), (1, 2)
-        `);
-
-        tx.executeSql(`
-          INSERT INTO chat_handle_join (chat_id, handle_id) 
-          VALUES (1, 1)
-        `);
-      }, 
-      (error) => {
+      }, (error: any) => {
         console.error('Error creating test database:', error);
         reject(error);
-      },
-      () => {
+      }, () => {
         console.log('Test database created successfully');
         resolve();
       });
@@ -227,44 +312,46 @@ export class DatabaseService {
   }
 
   async closeDatabase(): Promise<void> {
-    return new Promise((resolve) => {
-      // WebSQL databases don't have explicit close method
-      // Just null out our references
+    if (this.db) {
+      this.db.close();
       this.db = null;
-      this.dbPath = null;
-      resolve();
-    });
+    }
+    this.dbPath = null;
   }
 
   private async executeQuery<T>(query: string, params: any[] = []): Promise<T[]> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database is not open'));
-        return;
-      }
+    if (!this.db) {
+      throw new Error('Database is not open');
+    }
 
-      this.db.readTransaction((tx) => {
+    return new Promise((resolve, reject) => {
+      console.log('Executing query:', query.substring(0, 100) + '...', 'with params:', params);
+
+      this.db.transaction((tx: any) => {
         tx.executeSql(
           query,
           params,
-          (_, results) => {
-            const rows: T[] = [];
-            for (let i = 0; i < results.rows.length; i++) {
-              rows.push(results.rows.item(i));
+          (tx: any, result: any) => {
+            const results: T[] = [];
+            for (let i = 0; i < result.rows.length; i++) {
+              results.push(result.rows.item(i) as T);
             }
-            resolve(rows);
+            console.log('Query executed successfully, found', results.length, 'rows');
+            resolve(results);
           },
-          (_, error) => {
-            console.error('Query error:', error, 'Query:', query);
+          (tx: any, error: any) => {
+            console.error('Query error:', error, 'Query:', query, 'Params:', params);
             reject(error);
-            return false;
           }
         );
       });
     });
   }
 
-  async getChats(): Promise<ProcessedChat[]> {
+  async getChats(limit: number = 100): Promise<ProcessedChat[]> {
+    console.log('Loading contacts/chats with limit:', limit);
+    
+    // Ultra-lightweight query - just get chat info, no message data at all
     const query = `
       SELECT 
         c.ROWID as id,
@@ -272,44 +359,53 @@ export class DatabaseService {
         c.display_name,
         c.chat_identifier,
         c.service_name,
-        c.style,
-        COUNT(DISTINCT m.ROWID) as message_count,
-        MAX(m.date) as last_message_date
+        c.style
       FROM chat c
-      LEFT JOIN chat_message_join cmj ON c.ROWID = cmj.chat_id
-      LEFT JOIN message m ON cmj.message_id = m.ROWID
-      GROUP BY c.ROWID
-      ORDER BY last_message_date DESC
+      ORDER BY c.ROWID DESC
+      LIMIT ?
     `;
 
-    const chats = await this.executeQuery<any>(query);
-    const processedChats: ProcessedChat[] = [];
+    const chats = await this.executeQuery<any>(query, [limit]);
+    console.log(`Found ${chats.length} chats/contacts from database`);
 
-    for (const chat of chats) {
-      const participants = await this.getChatParticipants(chat.id);
-      const lastMessage = await this.getLastMessageForChat(chat.id);
+    // Process chats with zero additional queries - maximum speed
+    const processedChats: ProcessedChat[] = chats.map((chat, index) => {
+      // Determine display name efficiently
+      let displayName: string;
       
-      // Determine display name
-      let displayName = chat.display_name;
-      if (!displayName) {
-        if (chat.style === 45) { // Group chat
-          displayName = participants.join(', ') || 'Group Chat';
+      if (chat.display_name) {
+        displayName = chat.display_name;
+      } else if (chat.chat_identifier) {
+        // Clean up phone numbers and email addresses for display
+        if (chat.chat_identifier.includes('@')) {
+          displayName = chat.chat_identifier; // Email address
         } else {
-          displayName = participants[0] || chat.chat_identifier || 'Unknown';
+          // Format phone number
+          const cleaned = chat.chat_identifier.replace(/\D/g, '');
+          if (cleaned.length === 10) {
+            displayName = `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+          } else if (cleaned.length === 11 && cleaned[0] === '1') {
+            displayName = `+1 (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7)}`;
+          } else {
+            displayName = chat.chat_identifier;
+          }
         }
+      } else {
+        displayName = `Contact ${chat.id}`;
       }
 
-      processedChats.push({
+      return {
         id: chat.id,
         guid: chat.guid,
         displayName,
         isGroupChat: chat.style === 45,
-        participants,
-        lastMessage,
-        messageCount: chat.message_count || 0,
-      });
-    }
+        participants: [], // Will be loaded only when conversation is selected
+        lastMessage: undefined, // Will be loaded only when conversation is selected
+        messageCount: 0, // Will be loaded only when conversation is selected
+      };
+    });
 
+    console.log(`Processed ${processedChats.length} contacts/chats instantly`);
     return processedChats;
   }
 
@@ -360,6 +456,8 @@ export class DatabaseService {
   }
 
   async getMessagesForChat(chatId: number, limit: number = 100, offset: number = 0): Promise<ProcessedMessage[]> {
+    console.log(`Loading messages for chat ${chatId} (limit: ${limit}, offset: ${offset})`);
+    
     const query = `
       SELECT 
         m.ROWID as id,
@@ -374,15 +472,18 @@ export class DatabaseService {
       LEFT JOIN handle h ON m.handle_id = h.ROWID
       JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
       WHERE cmj.chat_id = ?
-      ORDER BY m.date ASC
+      ORDER BY m.date DESC
       LIMIT ? OFFSET ?
     `;
 
     const messages = await this.executeQuery<any>(query, [chatId, limit, offset]);
+    console.log(`Found ${messages.length} messages for chat ${chatId}`);
+    
     const processedMessages: ProcessedMessage[] = [];
 
     for (const msg of messages) {
-      const attachments = msg.cache_has_attachments ? await this.getAttachmentsForMessage(msg.id) : [];
+      // Only load attachments if they exist to save time
+      const attachments = msg.cache_has_attachments === 1 ? await this.getAttachmentsForMessage(msg.id) : [];
       
       processedMessages.push({
         id: msg.id,
@@ -392,12 +493,37 @@ export class DatabaseService {
         handleId: msg.handle_id,
         handleName: this.formatPhoneNumber(msg.handle_name),
         attachments,
-        isGroupMessage: true, // Assume group for now
+        isGroupMessage: false, // Will be determined by the caller based on chat type
         chatId,
       });
     }
 
-    return processedMessages;
+    console.log(`Processed ${processedMessages.length} messages for chat ${chatId}`);
+    // Reverse to show oldest first (chronological order)
+    return processedMessages.reverse();
+  }
+
+  // New method to get chat metadata on-demand
+  async getChatInfo(chatId: number): Promise<{messageCount: number, lastMessageDate?: Date}> {
+    const query = `
+      SELECT 
+        COUNT(m.ROWID) as message_count,
+        MAX(m.date) as last_message_date
+      FROM message m
+      JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+      WHERE cmj.chat_id = ?
+    `;
+
+    const result = await this.executeQuery<any>(query, [chatId]);
+    if (result.length > 0) {
+      const row = result[0];
+      return {
+        messageCount: row.message_count || 0,
+        lastMessageDate: row.last_message_date ? this.convertAppleTimestamp(row.last_message_date) : undefined
+      };
+    }
+    
+    return { messageCount: 0 };
   }
 
   async getAttachmentsForMessage(messageId: number): Promise<ProcessedAttachment[]> {

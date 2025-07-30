@@ -30,6 +30,15 @@ export const MainScreen: React.FC = () => {
     };
   }, [dbService]);
 
+  const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => 
+        setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
+  };
+
   const handleDatabaseSelected = async (path: string) => {
     setIsLoading(true);
     try {
@@ -38,12 +47,14 @@ export const MainScreen: React.FC = () => {
         await dbService.closeDatabase();
       }
 
-      // Open new connection (test database creation is handled automatically)
-      await dbService.openDatabase(path);
+      console.log('Opening database...');
+      // Open new connection with timeout (test database creation is handled automatically)
+      await withTimeout(dbService.openDatabase(path), 30000); // 30 second timeout
       setIsConnected(true);
 
-      // Load chats
-      const loadedChats = await dbService.getChats();
+      // Load contacts/chats - much faster now with no message queries
+      console.log('Loading contacts and conversations...');
+      const loadedChats = await withTimeout(dbService.getChats(100), 10000); // 10 second timeout, more chats
       setChats(loadedChats);
 
       console.log(`Loaded ${loadedChats.length} chats from database`);
@@ -57,9 +68,10 @@ export const MainScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error connecting to database:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       Alert.alert(
         'Database Error',
-        `Failed to open database: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease check:\n• File path is correct\n• File exists and is readable\n• File is a valid Messages database`,
+        `Failed to open database: ${errorMessage}\n\nPlease check:\n• File path is correct\n• File exists and is readable\n• File is a valid Messages database\n• Database isn't too large or corrupt`,
         [{ text: 'OK' }]
       );
       setIsConnected(false);
@@ -71,13 +83,23 @@ export const MainScreen: React.FC = () => {
   const handleChatSelected = async (chat: ProcessedChat) => {
     setSelectedChat(chat);
     setIsLoading(true);
+    setMessages([]); // Clear previous messages immediately
     
     try {
-      const chatMessages = await dbService.getMessagesForChat(chat.id, 100);
+      console.log(`Loading messages for: ${chat.displayName}`);
+      const chatMessages = await withTimeout(
+        dbService.getMessagesForChat(chat.id, 50), // Start with 50 messages
+        10000 // 10 second timeout
+      );
       setMessages(chatMessages);
+      console.log(`Loaded ${chatMessages.length} messages for ${chat.displayName}`);
     } catch (error) {
       console.error('Error loading messages:', error);
-      Alert.alert('Error', 'Failed to load messages for this chat');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert(
+        'Message Loading Error', 
+        `Failed to load messages for ${chat.displayName}: ${errorMessage}`
+      );
     } finally {
       setIsLoading(false);
     }

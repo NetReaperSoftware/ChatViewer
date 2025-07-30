@@ -21,17 +21,50 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
 }) => {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
+  const handleFilePicker = () => {
+    Alert.alert(
+      'File Picker Not Available',
+      'Native file picker is not available in this build. Please use "Manual Path" to enter the path to your chat.db file.\n\nDefault location: ~/Library/Messages/chat.db',
+      [
+        { text: 'OK', style: 'default' },
+        {
+          text: 'Use Manual Path',
+          onPress: () => {
+            const defaultPath = getDefaultMessagesPath();
+            Alert.prompt(
+              'Enter Database Path',
+              'Enter the full path to your chat.db file:',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Open',
+                  onPress: (customPath) => {
+                    if (customPath && customPath.trim()) {
+                      setSelectedPath(customPath.trim());
+                      onDatabaseSelected(customPath.trim());
+                    }
+                  },
+                },
+              ],
+              'plain-text',
+              defaultPath
+            );
+          },
+        },
+      ]
+    );
+  };
+
   const handleSelectDatabase = () => {
     Alert.alert(
       'Select Database',
       'Choose a database option:',
       [
         { text: 'Cancel', style: 'cancel' },
-        // Temporarily disabled: file picker causing build issues
-        // {
-        //   text: 'Browse Files',
-        //   onPress: handleFilePicker,
-        // },
+        {
+          text: 'Browse Files',
+          onPress: handleFilePicker,
+        },
         {
           text: 'Test DB',
           onPress: () => {
@@ -68,25 +101,6 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
     );
   };
 
-  // Temporarily disabled file picker function
-  // const handleFilePicker = async () => {
-  //   try {
-  //     const result = await pickFile({
-  //       allowedUTIs: ['public.database', 'public.sqlite3-database', 'public.data'],
-  //       multiple: false,
-  //     });
-  //     
-  //     if (result && result.length > 0) {
-  //       const file = result[0];
-  //       console.log('Selected file:', file);
-  //       setSelectedPath(file.path);
-  //       onDatabaseSelected(file.path);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error picking file:', error);
-  //     Alert.alert('Error', 'Failed to select file. Please try again.');
-  //   }
-  // };
 
   return (
     <View style={styles.container}>
@@ -120,7 +134,7 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
         <View style={styles.infoContainer}>
           <Text style={styles.infoTitle}>Usage Instructions:</Text>
           <Text style={styles.infoText}>
-            • Browse Files: Use macOS file picker to select any database
+            • Browse Files: Shows manual path dialog (file picker not available)
           </Text>
           <Text style={styles.infoText}>
             • Test DB: Create a sample database for testing
