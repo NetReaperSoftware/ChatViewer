@@ -13,7 +13,7 @@ target 'ChatViewer-macOS' do
   use_react_native!(
     :path => '../node_modules/react-native-macos',
     :hermes_enabled => false,
-    :fabric_enabled => ENV['RCT_NEW_ARCH_ENABLED'] == '1',
+    :fabric_enabled => false, # Explicitly disable Fabric for stability
     # Flipper is not compatible w/ macOS
     :flipper_configuration => FlipperConfiguration.disabled,
     # An absolute path to your application root.
@@ -23,5 +23,13 @@ target 'ChatViewer-macOS' do
   post_install do |installer|
     react_native_post_install(installer)
     __apply_Xcode_12_5_M1_post_install_workaround(installer)
+    
+    # Fix butter/map.h missing header issue
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+        config.build_settings['HEADER_SEARCH_PATHS'] << '"$(PODS_ROOT)/../node_modules/react-native-macos/ReactCommon"'
+      end
+    end
   end
 end
