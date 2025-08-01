@@ -5,7 +5,7 @@ interface ChatDatabaseModuleInterface {
   openDatabase(path: string): Promise<{success: boolean; path: string}>;
   closeDatabase(): void;
   executeQuery(sql: string, params: any[]): Promise<{rows: any[]; count: number}>;
-  getChats(limit: number): Promise<{rows: any[]; count: number}>;
+  getChats(limit?: number): Promise<{rows: any[]; count: number}>;
   searchMessages(searchTerm: string, limit: number): Promise<{rows: any[]; count: number}>;
   getMessagesForChat(chatId: number, limit: number, offset: number): Promise<{rows: any[]; count: number}>;
 }
@@ -30,6 +30,10 @@ export interface MessageRow {
   handle_name?: string;
   cache_has_attachments?: number;
   chat_id?: number;
+  message_service?: string;
+  subject?: string;
+  is_empty?: number;
+  is_system_message?: number;
 }
 
 // Get the native module

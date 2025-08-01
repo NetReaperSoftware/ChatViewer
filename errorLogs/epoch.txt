@@ -1,0 +1,47 @@
+To convert standard date/time to epoch time (i.e., Unix timestamp) for use in SQL queries against chat.db (from iMessage), here are the two main formats you'll need to understand:
+
+🧱 1. Standard Unix Epoch
+Counts seconds since Jan 1, 1970 (UTC)
+
+Example:
+2021-10-01 00:00:00 UTC → 1633046400
+
+You can generate this using:
+
+bash
+Copy
+Edit
+date -j -f "%Y-%m-%d %H:%M:%S" "2021-10-01 00:00:00" "+%s"
+or in JavaScript:
+
+js
+Copy
+Edit
+Math.floor(new Date("2021-10-01T00:00:00Z").getTime() / 1000); // 1633046400
+🍏 2. Apple's Cocoa Epoch (Used in chat.db)
+Counts seconds since Jan 1, 2001 00:00:00 UTC
+
+This means you need to subtract 978307200 from the standard Unix epoch.
+
+✅ Example with your date:
+text
+Copy
+Edit
+Standard Epoch for 2021-10-01 00:00:00 UTC:       1633046400
+Cocoa Epoch (Apple):                             1633046400 - 978307200 = 655739200
+🧠 SQL Usage in chat.db
+If you're querying messages:
+
+sql
+Copy
+Edit
+SELECT text, datetime(date + 978307200, 'unixepoch', 'localtime') AS sent_at
+FROM message
+WHERE date > 655739200
+ORDER BY date DESC;
+If you want messages from October 1, 2021 onward, use:
+
+sql
+Copy
+Edit
+WHERE date > 655739200

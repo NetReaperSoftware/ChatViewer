@@ -19,6 +19,9 @@ export const MainScreen: React.FC = () => {
   const [chats, setChats] = useState<ProcessedChat[]>([]);
   const [selectedChat, setSelectedChat] = useState<ProcessedChat | null>(null);
   const [messages, setMessages] = useState<ProcessedMessage[]>([]);
+  const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [messageOffset, setMessageOffset] = useState(0);
   const isDarkMode = useColorScheme() === 'dark';
 
   useEffect(() => {
@@ -54,7 +57,7 @@ export const MainScreen: React.FC = () => {
 
       // Load contacts/chats - much faster now with no message queries
       console.log('Loading contacts and conversations...');
-      const loadedChats = await withTimeout(dbService.getChats(100), 10000); // 10 second timeout, more chats
+      const loadedChats = await withTimeout(dbService.getChats(), 30000); // 30 second timeout, all chats
       setChats(loadedChats);
 
       console.log(`Loaded ${loadedChats.length} chats from database`);
@@ -84,14 +87,18 @@ export const MainScreen: React.FC = () => {
     setSelectedChat(chat);
     setIsLoading(true);
     setMessages([]); // Clear previous messages immediately
+    setMessageOffset(0); // Reset pagination
+    setHasMoreMessages(true);
     
     try {
       console.log(`Loading messages for: ${chat.displayName}`);
       const chatMessages = await withTimeout(
-        dbService.getMessagesForChat(chat.id, 50), // Start with 50 messages
+        dbService.getMessagesForChat(chat.id, 100, 0), // Load first 100 messages
         10000 // 10 second timeout
       );
       setMessages(chatMessages);
+      setMessageOffset(100); // Next batch starts at 100
+      setHasMoreMessages(chatMessages.length === 100); // If we got less than 100, no more messages
       console.log(`Loaded ${chatMessages.length} messages for ${chat.displayName}`);
     } catch (error) {
       console.error('Error loading messages:', error);
@@ -102,6 +109,40 @@ export const MainScreen: React.FC = () => {
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadMoreMessages = async () => {
+    if (!selectedChat || isLoadingMoreMessages || !hasMoreMessages) {
+      return;
+    }
+
+    setIsLoadingMoreMessages(true);
+    
+    try {
+      console.log(`Loading more messages for: ${selectedChat.displayName} (offset: ${messageOffset})`);
+      const moreMessages = await withTimeout(
+        dbService.getMessagesForChat(selectedChat.id, 100, messageOffset),
+        10000 // 10 second timeout
+      );
+      
+      if (moreMessages.length > 0) {
+        setMessages(prevMessages => [...prevMessages, ...moreMessages]);
+        setMessageOffset(prevOffset => prevOffset + moreMessages.length);
+        setHasMoreMessages(moreMessages.length === 100);
+        console.log(`Loaded ${moreMessages.length} more messages (total: ${messages.length + moreMessages.length})`);
+      } else {
+        setHasMoreMessages(false);
+        console.log('No more messages to load');
+      }
+    } catch (error) {
+      console.error('Error loading more messages:', error);
+      Alert.alert(
+        'Error Loading More Messages',
+        'Failed to load additional messages. Please try again.'
+      );
+    } finally {
+      setIsLoadingMoreMessages(false);
     }
   };
 
@@ -134,6 +175,9 @@ export const MainScreen: React.FC = () => {
           messages={messages}
           isLoading={isLoading}
           isDarkMode={isDarkMode}
+          onLoadMore={loadMoreMessages}
+          isLoadingMore={isLoadingMoreMessages}
+          hasMoreMessages={hasMoreMessages}
         />
       </View>
       

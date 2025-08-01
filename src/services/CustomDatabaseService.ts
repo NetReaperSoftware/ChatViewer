@@ -4,7 +4,6 @@ import ChatDatabaseModule, { ChatRow, MessageRow } from './ChatDatabaseModule';
 import {
   ProcessedChat,
   ProcessedMessage,
-  ProcessedAttachment,
 } from '../types/DatabaseTypes';
 
 export class CustomDatabaseService {
@@ -226,12 +225,12 @@ Path attempted: ${expandedPath}
     this.dbPath = null;
   }
 
-  async getChats(limit: number = 100): Promise<ProcessedChat[]> {
+  async getChats(limit?: number): Promise<ProcessedChat[]> {
     if (!this.connected) {
       throw new Error('Database is not open');
     }
 
-    console.log('📱 Loading contacts/chats with custom module, limit:', limit);
+    console.log('📱 Loading contacts/chats with custom module, limit:', limit || 'unlimited');
     
     try {
       // First, let's test with a simple count query
@@ -239,7 +238,7 @@ Path attempted: ${expandedPath}
       const countResult = await ChatDatabaseModule.executeQuery('SELECT COUNT(*) as total FROM chat', []);
       console.log('📊 Count query result:', countResult);
       
-      const result = await ChatDatabaseModule.getChats(limit);
+      const result = await ChatDatabaseModule.getChats(limit || 0); // Pass 0 to indicate no limit
       const chats: ChatRow[] = result.rows;
       
       console.log(`Found ${chats.length} chats/contacts from database`);
@@ -302,6 +301,21 @@ Path attempted: ${expandedPath}
       
       console.log(`Found ${messages.length} messages for chat ${chatId}`);
       
+      // Debug the first message to verify data structure including timestamp
+      if (messages.length > 0) {
+        console.log('🔍 Sample message data:', {
+          id: messages[0].id,
+          hasText: !!messages[0].text,
+          textLength: messages[0].text?.length || 0,
+          hasAttributedBody: !!messages[0].attributedBody,
+          isFromMe: messages[0].is_from_me === 1,
+          service: messages[0].message_service,
+          rawDate: messages[0].date,
+          dateType: typeof messages[0].date,
+          dateValue: messages[0].date
+        });
+      }
+      
       const processedMessages: ProcessedMessage[] = messages.map((msg) => ({
         id: msg.id,
         text: this.extractMessageText(msg),
@@ -312,6 +326,7 @@ Path attempted: ${expandedPath}
         attachments: [], // TODO: Implement attachment loading
         isGroupMessage: false, // Will be determined by the caller based on chat type
         chatId,
+        isSMS: false, // No SMS messages will be processed now
       }));
 
       console.log(`✅ Processed ${processedMessages.length} messages for chat ${chatId}`);
@@ -345,6 +360,7 @@ Path attempted: ${expandedPath}
         handleName: this.formatPhoneNumber(msg.handle_name || ''),
         isGroupMessage: false,
         chatId: msg.chat_id || 0,
+        isSMS: false, // No SMS messages will be processed now
       }));
 
       console.log(`✅ Processed ${processedMessages.length} search results`);
@@ -356,27 +372,121 @@ Path attempted: ${expandedPath}
   }
 
   private extractMessageText(message: MessageRow): string {
-    // Handle legacy plain text messages
-    if (message.text) {
-      return message.text;
+    // Handle plain text messages - check for both null/undefined and empty string
+    if (message.text && typeof message.text === 'string' && message.text.trim()) {
+      return message.text.trim();
     }
     
     // Handle newer attributedBody format
     if (message.attributedBody) {
-      // For now, we'll return a placeholder. In a full implementation,
-      // you'd need to parse the Apple typedstream format
-      return '[Rich Text Message]';
+      try {
+        // attributedBody could be binary data or string
+        let bodyStr: string;
+        
+        if (typeof message.attributedBody === 'string') {
+          bodyStr = message.attributedBody;
+        } else if (message.attributedBody && typeof message.attributedBody === 'object') {
+          // In React Native, binary data comes as objects with specific structure
+          if (message.attributedBody.data && Array.isArray(message.attributedBody.data)) {
+            // Convert byte array to string
+            const bytes = message.attributedBody.data;
+            bodyStr = String.fromCharCode(...bytes);
+          } else {
+            bodyStr = String(message.attributedBody);
+          }
+        } else {
+          bodyStr = message.attributedBody.toString();
+        }
+        
+        // Look for readable text patterns
+        const readableTextMatches = bodyStr.match(/[\x20-\x7E]{4,}/g);
+        if (readableTextMatches && readableTextMatches.length > 0) {
+          // Filter out common binary/encoded patterns
+          const filteredMatches = readableTextMatches.filter(match => {
+            return !match.includes('NSString') && 
+                   !match.includes('NSMutable') &&
+                   !match.includes('CFString') &&
+                   !match.includes('bplist') &&
+                   !match.includes('__') &&
+                   match.length > 4;
+          });
+          
+          if (filteredMatches.length > 0) {
+            // Return the longest meaningful text
+            const longestMatch = filteredMatches.reduce((a: string, b: string) => a.length > b.length ? a : b);
+            if (longestMatch.length > 4) {
+              return longestMatch.trim();
+            }
+          }
+        }
+        
+        // Look for NSString patterns specifically
+        const stringMatches = bodyStr.match(/NSString[^"]*"([^"]+)"/);
+        if (stringMatches && stringMatches[1]) {
+          return stringMatches[1];
+        }
+        
+        // Try to extract text from plist-like structures
+        const plistTextMatches = bodyStr.match(/<string>([^<]+)<\/string>/);
+        if (plistTextMatches && plistTextMatches[1]) {
+          return plistTextMatches[1];
+        }
+        
+        return '[Rich Text Message]';
+      } catch (error) {
+        return '[Rich Text Message]';
+      }
+    }
+    
+    // Check if it's an attachment or special message type
+    if (message.cache_has_attachments === 1) {
+      return '[Attachment]';
     }
     
     return '[Empty Message]';
   }
 
   private convertAppleTimestamp(timestamp: number): Date {
-    // Apple timestamps are seconds since January 1, 2001, UTC
-    // JavaScript timestamps are milliseconds since January 1, 1970, UTC
-    const appleEpochStart = new Date('2001-01-01T00:00:00Z').getTime();
-    return new Date(appleEpochStart + (timestamp * 1000));
+    // Simplified logging for performance with full conversations
+
+    // Handle invalid timestamps
+    if (!timestamp || isNaN(timestamp) || !isFinite(timestamp)) {
+      console.log('❌ Invalid timestamp, using current date');
+      return new Date();
+    }
+    
+    // Apple Messages database can store timestamps in different formats:
+    // 1. Seconds since January 1, 2001 (Cocoa epoch)
+    // 2. Nanoseconds since January 1, 2001 (newer format)
+    
+    let appleSeconds: number;
+    
+    // Detect if timestamp is in nanoseconds (very large number)
+    // Nanosecond timestamps are typically > 1e15 (after ~2032 in seconds)
+    if (timestamp > 1e15) {
+      // Convert nanoseconds to seconds
+      appleSeconds = timestamp / 1e9; // Divide by 1 billion
+    } else {
+      appleSeconds = timestamp;
+    }
+    
+    // Convert Apple timestamp (seconds since 2001) to Unix timestamp (seconds since 1970)
+    // Difference: 978307200 seconds (31 years)
+    const unixTimestamp = appleSeconds + 978307200;
+    const jsTimestamp = unixTimestamp * 1000; // Convert to milliseconds for JavaScript Date
+    const resultDate = new Date(jsTimestamp);
+    
+    // Only log timestamp conversion errors for debugging
+    if (isNaN(resultDate.getTime())) {
+      console.log('❌ Timestamp conversion failed:', {
+        originalTimestamp: timestamp,
+        resultDate: resultDate.toString()
+      });
+    }
+    
+    return resultDate;
   }
+
 
   private formatPhoneNumber(phoneNumber: string): string {
     if (!phoneNumber) return 'Unknown';

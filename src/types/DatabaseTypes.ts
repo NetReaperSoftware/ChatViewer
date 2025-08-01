@@ -173,6 +173,7 @@ export interface ProcessedMessage {
   attachments?: ProcessedAttachment[];
   isGroupMessage: boolean;
   chatId: number;
+  isSMS?: boolean;
 }
 
 export interface ProcessedChat {

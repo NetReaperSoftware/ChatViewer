@@ -268,7 +268,18 @@ class ChatDatabaseManager: NSObject {
                         row[columnName] = sqlite3_column_double(statement, i)
                     case SQLITE_TEXT:
                         if let text = sqlite3_column_text(statement, i) {
-                            row[columnName] = String(cString: text)
+                            let textValue = String(cString: text)
+                            row[columnName] = textValue
+                            if columnName == "text" {
+                                print("📝 Text column for message: '\(textValue)'")
+                            }
+                            if columnName == "message_service" {
+                                print("🔧 Service column: '\(textValue)'")
+                            }
+                        } else {
+                            if columnName == "text" {
+                                print("📝 Text column is NULL")
+                            }
                         }
                     case SQLITE_BLOB:
                         let bytes = sqlite3_column_blob(statement, i)
@@ -299,21 +310,55 @@ class ChatDatabaseManager: NSObject {
     @objc func getChats(_ limit: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         print("🔍 getChats called with limit: \(limit)")
         
-        let sql = """
-            SELECT 
-                c.ROWID as id,
-                c.guid,
-                c.display_name,
-                c.chat_identifier,
-                c.service_name,
-                c.style
-            FROM chat c
-            ORDER BY c.ROWID DESC
-            LIMIT ?
-        """
+        let sql: String
+        let params: [Any]
+        
+        if limit > 0 {
+            sql = """
+                SELECT 
+                    c.ROWID as id,
+                    c.guid,
+                    c.display_name,
+                    c.chat_identifier,
+                    c.service_name,
+                    c.style
+                FROM chat c
+                WHERE EXISTS (
+                    SELECT 1 FROM chat_message_join cmj 
+                    JOIN message m ON cmj.message_id = m.ROWID 
+                    WHERE cmj.chat_id = c.ROWID 
+                    AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
+                    AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
+                )
+                ORDER BY c.ROWID DESC
+                LIMIT ?
+            """
+            params = [limit]
+        } else {
+            // No limit - get all chats
+            sql = """
+                SELECT 
+                    c.ROWID as id,
+                    c.guid,
+                    c.display_name,
+                    c.chat_identifier,
+                    c.service_name,
+                    c.style
+                FROM chat c
+                WHERE EXISTS (
+                    SELECT 1 FROM chat_message_join cmj 
+                    JOIN message m ON cmj.message_id = m.ROWID 
+                    WHERE cmj.chat_id = c.ROWID 
+                    AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
+                    AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
+                )
+                ORDER BY c.ROWID DESC
+            """
+            params = []
+        }
         
         print("🔍 Executing getChats query: \(sql)")
-        executeQuery(sql, params: [limit], resolver: resolve, rejecter: reject)
+        executeQuery(sql, params: params, resolver: resolve, rejecter: reject)
     }
     
     @objc func searchMessages(_ searchTerm: String, limit: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -329,6 +374,7 @@ class ChatDatabaseManager: NSObject {
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
             WHERE m.text LIKE ?
+            AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
             ORDER BY m.date DESC
             LIMIT ?
         """
@@ -338,6 +384,8 @@ class ChatDatabaseManager: NSObject {
     }
     
     @objc func getMessagesForChat(_ chatId: Int, limit: Int, offset: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        print("🔍 getMessagesForChat called with chatId: \(chatId), limit: \(limit), offset: \(offset)")
+        
         let sql = """
             SELECT 
                 m.ROWID as id,
@@ -347,15 +395,22 @@ class ChatDatabaseManager: NSObject {
                 m.date,
                 m.handle_id,
                 h.id as handle_name,
-                m.cache_has_attachments
+                m.cache_has_attachments,
+                m.service as message_service,
+                m.subject,
+                m.is_empty,
+                m.is_system_message
             FROM message m
             LEFT JOIN handle h ON m.handle_id = h.ROWID
             JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
             WHERE cmj.chat_id = ?
+            AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
+            AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
             ORDER BY m.date DESC
             LIMIT ? OFFSET ?
         """
         
+        print("🔍 Executing getMessagesForChat query: \(sql)")
         executeQuery(sql, params: [chatId, limit, offset], resolver: resolve, rejecter: reject)
     }
     

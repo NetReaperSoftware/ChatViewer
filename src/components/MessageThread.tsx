@@ -13,6 +13,9 @@ interface MessageThreadProps {
   messages: ProcessedMessage[];
   isLoading: boolean;
   isDarkMode: boolean;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
+  hasMoreMessages?: boolean;
 }
 
 export const MessageThread: React.FC<MessageThreadProps> = ({
@@ -20,6 +23,9 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
   messages,
   isLoading,
   isDarkMode,
+  onLoadMore,
+  isLoadingMore = false,
+  hasMoreMessages = false,
 }) => {
   const renderMessage = ({ item }: { item: ProcessedMessage }) => {
     return (
@@ -33,7 +39,10 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
           style={[
             styles.messageBubble,
             item.isFromMe
-              ? [styles.bubbleFromMe, isDarkMode && styles.bubbleFromMeDark]
+              ? [
+                  item.isSMS ? styles.bubbleFromMeSMS : styles.bubbleFromMe,
+                  isDarkMode && (item.isSMS ? styles.bubbleFromMeSMSDark : styles.bubbleFromMeDark)
+                ]
               : [styles.bubbleFromOther, isDarkMode && styles.bubbleFromOtherDark],
           ]}
         >
@@ -118,6 +127,42 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
     );
   }
 
+  const handleScroll = (event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    
+    // Check if user scrolled to the bottom (within 50px)
+    const isNearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 50;
+    
+    if (isNearBottom && hasMoreMessages && !isLoadingMore && onLoadMore) {
+      onLoadMore();
+    }
+  };
+
+  const renderFooter = () => {
+    if (!hasMoreMessages) {
+      return (
+        <View style={[styles.endOfMessagesContainer, isDarkMode && styles.endOfMessagesContainerDark]}>
+          <Text style={[styles.endOfMessagesText, isDarkMode && styles.endOfMessagesTextDark]}>
+            • Beginning of conversation •
+          </Text>
+        </View>
+      );
+    }
+
+    if (isLoadingMore) {
+      return (
+        <View style={[styles.loadMoreContainer, isDarkMode && styles.loadMoreContainerDark]}>
+          <ActivityIndicator size="small" color={isDarkMode ? '#fff' : '#007bff'} />
+          <Text style={[styles.loadMoreText, isDarkMode && styles.loadMoreTextDark]}>
+            Loading more messages...
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <View style={[styles.container, isDarkMode && styles.containerDark]}>
       <View style={[styles.header, isDarkMode && styles.headerDark]}>
@@ -139,6 +184,9 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
         contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
         inverted={false} // Messages should be in chronological order
+        onScroll={handleScroll}
+        scrollEventThrottle={400} // Throttle scroll events for performance
+        ListFooterComponent={renderFooter}
       />
     </View>
   );
@@ -231,6 +279,13 @@ const styles = StyleSheet.create({
   },
   bubbleFromMeDark: {
     backgroundColor: '#0066cc',
+  },
+  bubbleFromMeSMS: {
+    backgroundColor: '#34c759', // Green color for SMS messages
+    borderBottomRightRadius: 4,
+  },
+  bubbleFromMeSMSDark: {
+    backgroundColor: '#2d9d47', // Darker green for dark mode
   },
   bubbleFromOther: {
     backgroundColor: '#e9ecef',
@@ -327,5 +382,40 @@ const styles = StyleSheet.create({
   },
   loadingTextDark: {
     color: '#999',
+  },
+  loadMoreContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+  },
+  loadMoreContainerDark: {
+    backgroundColor: '#2c2c2e',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+  },
+  loadMoreTextDark: {
+    color: '#999',
+  },
+  endOfMessagesContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8f9fa',
+  },
+  endOfMessagesContainerDark: {
+    backgroundColor: '#2c2c2e',
+  },
+  endOfMessagesText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  endOfMessagesTextDark: {
+    color: '#666',
   },
 });
