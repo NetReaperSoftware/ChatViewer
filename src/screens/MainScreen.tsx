@@ -22,7 +22,12 @@ export const MainScreen: React.FC = () => {
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [messageOffset, setMessageOffset] = useState(0);
-  const isDarkMode = useColorScheme() === 'dark';
+  const [searchResults, setSearchResults] = useState<ProcessedMessage[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const systemColorScheme = useColorScheme();
+  const [darkModeOverride, setDarkModeOverride] = useState<boolean | null>(null);
+  const isDarkMode = darkModeOverride !== null ? darkModeOverride : systemColorScheme === 'dark';
 
   useEffect(() => {
     return () => {
@@ -146,6 +151,63 @@ export const MainScreen: React.FC = () => {
     }
   };
 
+  const handleMessageSearch = async (query: string) => {
+    setSearchQuery(query);
+    
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    
+    try {
+      console.log(`Searching messages for: "${query}"`);
+      const results = await withTimeout(
+        dbService.searchMessages(query, 100), // Search up to 100 results
+        120000 // 2 minute timeout for historical search across all data
+      );
+      
+      setSearchResults(results);
+      console.log(`Found ${results.length} messages containing "${query}"`);
+    } catch (error) {
+      console.error('Error searching messages:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert(
+        'Search Error',
+        `Failed to search messages: ${errorMessage}`
+      );
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSearchResultSelected = (message: ProcessedMessage) => {
+    // Find the chat that contains this message
+    const chat = chats.find(c => c.id === message.chatId);
+    if (chat) {
+      // Select the chat and clear search
+      setSelectedChat(chat);
+      setSearchQuery('');
+      setSearchResults([]);
+      
+      // Load messages for this chat
+      handleChatSelected(chat);
+    }
+  };
+
+  const toggleDarkMode = () => {
+    setDarkModeOverride(prev => {
+      if (prev === null) {
+        // First toggle: opposite of system
+        return systemColorScheme !== 'dark';
+      } else {
+        // Subsequent toggles: just flip the current state
+        return !prev;
+      }
+    });
+  };
+
   if (!isConnected) {
     return (
       <DatabasePicker
@@ -165,6 +227,12 @@ export const MainScreen: React.FC = () => {
           selectedChat={selectedChat}
           onChatSelected={handleChatSelected}
           isDarkMode={isDarkMode}
+          searchResults={searchResults}
+          searchQuery={searchQuery}
+          isSearching={isSearching}
+          onMessageSearch={handleMessageSearch}
+          onSearchResultSelected={handleSearchResultSelected}
+          onToggleDarkMode={toggleDarkMode}
         />
       </View>
       

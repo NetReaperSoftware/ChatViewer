@@ -6,14 +6,22 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
+  ActivityIndicator,
+  Switch,
 } from 'react-native';
-import { ProcessedChat } from '../types/DatabaseTypes';
+import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
 
 interface ConversationListProps {
   chats: ProcessedChat[];
   selectedChat: ProcessedChat | null;
   onChatSelected: (chat: ProcessedChat) => void;
   isDarkMode: boolean;
+  searchResults: ProcessedMessage[];
+  searchQuery: string;
+  isSearching: boolean;
+  onMessageSearch: (query: string) => void;
+  onSearchResultSelected: (message: ProcessedMessage) => void;
+  onToggleDarkMode: () => void;
 }
 
 export const ConversationList: React.FC<ConversationListProps> = ({
@@ -21,19 +29,37 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   selectedChat,
   onChatSelected,
   isDarkMode,
+  searchResults,
+  searchQuery,
+  isSearching,
+  onMessageSearch,
+  onSearchResultSelected,
+  onToggleDarkMode,
 }) => {
-  const [searchText, setSearchText] = React.useState('');
+  const [contactSearchText, setContactSearchText] = React.useState('');
+  const [messageSearchText, setMessageSearchText] = React.useState('');
 
   const filteredChats = React.useMemo(() => {
-    if (!searchText.trim()) return chats;
+    if (!contactSearchText.trim()) return chats;
     
     return chats.filter(chat =>
-      chat.displayName.toLowerCase().includes(searchText.toLowerCase()) ||
+      chat.displayName.toLowerCase().includes(contactSearchText.toLowerCase()) ||
       chat.participants.some(participant =>
-        participant.toLowerCase().includes(searchText.toLowerCase())
+        participant.toLowerCase().includes(contactSearchText.toLowerCase())
       )
     );
-  }, [chats, searchText]);
+  }, [chats, contactSearchText]);
+
+  // Handle message search with debouncing
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (messageSearchText.trim() !== searchQuery) {
+        onMessageSearch(messageSearchText);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [messageSearchText, searchQuery, onMessageSearch]);
 
   const renderChatItem = ({ item }: { item: ProcessedChat }) => {
     const isSelected = selectedChat?.id === item.id;
@@ -107,12 +133,60 @@ export const ConversationList: React.FC<ConversationListProps> = ({
     );
   };
 
+  const renderSearchResultItem = ({ item }: { item: ProcessedMessage }) => {
+    return (
+      <TouchableOpacity
+        style={[
+          styles.searchResultItem,
+          isDarkMode && styles.searchResultItemDark,
+        ]}
+        onPress={() => onSearchResultSelected(item)}
+      >
+        <Text
+          style={[
+            styles.searchResultText,
+            isDarkMode && styles.searchResultTextDark,
+          ]}
+          numberOfLines={2}
+        >
+          {item.text}
+        </Text>
+        <Text
+          style={[
+            styles.searchResultMeta,
+            isDarkMode && styles.searchResultMetaDark,
+          ]}
+        >
+          {item.handleName} • {formatTimestamp(item.timestamp)}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const showSearchResults = messageSearchText.trim().length > 0;
+  const displayData = showSearchResults ? searchResults : filteredChats;
+  const renderItem = showSearchResults ? renderSearchResultItem : renderChatItem;
+
   return (
     <View style={[styles.container, isDarkMode && styles.containerDark]}>
       <View style={[styles.header, isDarkMode && styles.headerDark]}>
-        <Text style={[styles.title, isDarkMode && styles.titleDark]}>
-          Messages
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, isDarkMode && styles.titleDark]}>
+            Messages
+          </Text>
+          <View style={styles.darkModeToggle}>
+            <Text style={[styles.toggleLabel, isDarkMode && styles.toggleLabelDark]}>
+              {isDarkMode ? '🌙' : '☀️'}
+            </Text>
+            <Switch
+              value={isDarkMode}
+              onValueChange={onToggleDarkMode}
+              trackColor={{ false: '#e0e0e0', true: '#007bff' }}
+              thumbColor={isDarkMode ? '#fff' : '#f4f3f4'}
+              ios_backgroundColor="#e0e0e0"
+            />
+          </View>
+        </View>
         <TextInput
           style={[
             styles.searchInput,
@@ -120,15 +194,37 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           ]}
           placeholder="Search conversations..."
           placeholderTextColor={isDarkMode ? '#999' : '#666'}
-          value={searchText}
-          onChangeText={setSearchText}
+          value={contactSearchText}
+          onChangeText={setContactSearchText}
         />
+        <TextInput
+          style={[
+            styles.searchInput,
+            styles.messageSearchInput,
+            isDarkMode && styles.searchInputDark,
+          ]}
+          placeholder="Search message content..."
+          placeholderTextColor={isDarkMode ? '#999' : '#666'}
+          value={messageSearchText}
+          onChangeText={setMessageSearchText}
+        />
+        {isSearching && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator 
+              size="small" 
+              color={isDarkMode ? '#007bff' : '#007bff'} 
+            />
+            <Text style={[styles.loadingText, isDarkMode && styles.loadingTextDark]}>
+              Searching...
+            </Text>
+          </View>
+        )}
       </View>
       
       <FlatList
-        data={filteredChats}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderChatItem}
+        data={displayData}
+        keyExtractor={(item) => showSearchResults ? `msg-${item.id}` : `chat-${item.id}`}
+        renderItem={renderItem}
         style={styles.list}
         showsVerticalScrollIndicator={false}
         ItemSeparatorComponent={() => (
@@ -138,6 +234,15 @@ export const ConversationList: React.FC<ConversationListProps> = ({
               isDarkMode && styles.separatorDark,
             ]}
           />
+        )}
+        ListEmptyComponent={() => (
+          showSearchResults && !isSearching ? (
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, isDarkMode && styles.emptyTextDark]}>
+                {messageSearchText.trim() ? 'No messages found' : 'Start typing to search messages...'}
+              </Text>
+            </View>
+          ) : null
         )}
       />
     </View>
@@ -173,13 +278,29 @@ const styles = StyleSheet.create({
   headerDark: {
     borderBottomColor: '#38383a',
   },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   title: {
     fontSize: 20,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 12,
   },
   titleDark: {
+    color: '#fff',
+  },
+  darkModeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toggleLabel: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  toggleLabelDark: {
     color: '#fff',
   },
   searchInput: {
@@ -193,6 +314,61 @@ const styles = StyleSheet.create({
   searchInputDark: {
     backgroundColor: '#1c1c1e',
     color: '#fff',
+  },
+  messageSearchInput: {
+    marginTop: 8,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  loadingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#666',
+  },
+  loadingTextDark: {
+    color: '#999',
+  },
+  searchResultItem: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderLeftWidth: 3,
+    borderLeftColor: '#007bff',
+  },
+  searchResultItemDark: {
+    backgroundColor: '#2c2c2e',
+    borderLeftColor: '#0066cc',
+  },
+  searchResultText: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  searchResultTextDark: {
+    color: '#fff',
+  },
+  searchResultMeta: {
+    fontSize: 12,
+    color: '#666',
+  },
+  searchResultMetaDark: {
+    color: '#999',
+  },
+  emptyContainer: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  emptyTextDark: {
+    color: '#999',
   },
   list: {
     flex: 1,

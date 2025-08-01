@@ -30,10 +30,14 @@ export interface MessageRow {
   handle_name?: string;
   cache_has_attachments?: number;
   chat_id?: number;
+  chat_display_name?: string;
+  chat_identifier?: string;
   message_service?: string;
   subject?: string;
   is_empty?: number;
   is_system_message?: number;
+  associated_message_guid?: string;
+  balloon_bundle_id?: string;
 }
 
 // Get the native module

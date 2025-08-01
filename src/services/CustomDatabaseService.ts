@@ -301,18 +301,36 @@ Path attempted: ${expandedPath}
       
       console.log(`Found ${messages.length} messages for chat ${chatId}`);
       
-      // Debug the first message to verify data structure including timestamp
+      // First time investigating - check database schema and other tables
+      if (chatId === 130 && offset === 0) { // Only for austinmarie11@icloud.com investigation
+        await this.investigateDatabaseSchema();
+        await this.searchForMissingText('brainwashed');
+      }
+      
+      // Debug messages that might have missing text data
       if (messages.length > 0) {
-        console.log('🔍 Sample message data:', {
-          id: messages[0].id,
-          hasText: !!messages[0].text,
-          textLength: messages[0].text?.length || 0,
-          hasAttributedBody: !!messages[0].attributedBody,
-          isFromMe: messages[0].is_from_me === 1,
-          service: messages[0].message_service,
-          rawDate: messages[0].date,
-          dateType: typeof messages[0].date,
-          dateValue: messages[0].date
+        messages.forEach((msg, index) => {
+          const extractedText = this.extractMessageText(msg);
+          if (extractedText === '[Empty Message]' || extractedText === '[Rich Text Message]') {
+            console.log(`🔍 Investigating message ${msg.id} (index ${index}):`, {
+              id: msg.id,
+              hasText: !!msg.text,
+              textValue: msg.text,
+              textType: typeof msg.text,
+              hasAttributedBody: !!msg.attributedBody,
+              attributedBodyType: typeof msg.attributedBody,
+              isFromMe: msg.is_from_me === 1,
+              service: msg.message_service,
+              extractedText,
+              // Add more detailed BLOB inspection
+              attributedBodyLength: msg.attributedBody ? JSON.stringify(msg.attributedBody).length : 0,
+            });
+            
+            // Try to examine the attributedBody more thoroughly
+            if (msg.attributedBody) {
+              this.debugAttributedBody(msg.id, msg.attributedBody);
+            }
+          }
         });
       }
       
@@ -338,20 +356,101 @@ Path attempted: ${expandedPath}
     }
   }
 
-  async searchMessages(searchTerm: string, limit: number = 50): Promise<ProcessedMessage[]> {
+  async searchMessages(searchTerm: string, limit: number = 100): Promise<ProcessedMessage[]> {
     if (!this.connected) {
       throw new Error('Database is not open');
     }
 
-    console.log(`🔍 Searching messages for: "${searchTerm}" (limit: ${limit})`);
+    console.log(`🔍 Historical search for: "${searchTerm}" across ALL message history (${limit} results)`);
     
     try {
+      console.log(`🔍 Phase 1: SQL search across ALL historical messages (no time limit)`);
       const result = await ChatDatabaseModule.searchMessages(searchTerm, limit);
-      const messages: MessageRow[] = result.rows;
+      let messages: MessageRow[] = result.rows;
       
-      console.log(`Found ${messages.length} matching messages`);
+      console.log(`Found ${messages.length} direct SQL matches for "${searchTerm}" across all history`);
       
-      const processedMessages: ProcessedMessage[] = messages.map((msg) => ({
+      // Log some details about the search results with timestamps
+      messages.forEach((msg, index) => {
+        if (index < 5) { // Log first 5 results for debugging
+          const messageDate = this.convertAppleTimestamp(msg.date);
+          console.log(`Direct match ${index + 1}:`, {
+            id: msg.id,
+            text: msg.text?.substring(0, 100) || '[no text]',
+            hasAttributedBody: !!msg.attributedBody,
+            handleName: msg.handle_name,
+            chatDisplayName: msg.chat_display_name,
+            service: msg.message_service,
+            date: messageDate.toLocaleDateString() + ' ' + messageDate.toLocaleTimeString()
+          });
+        }
+      });
+      
+      // ALWAYS search attributedBody content as well for historical messages
+      console.log(`🔍 Phase 2: Searching attributedBody content across ALL historical messages...`);
+      
+      // Get ALL messages from entire database history to search through their extracted text
+      const broadResult = await ChatDatabaseModule.executeQuery(
+        `SELECT 
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              c.ROWID as chat_id,
+              c.display_name as chat_display_name,
+              c.chat_identifier,
+              m.service as message_service,
+              m.subject,
+              m.cache_has_attachments
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+         LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+         ORDER BY m.date DESC`,
+        [] // NO LIMIT - search through ALL messages in entire database
+      );
+      
+      console.log(`🕰️ Searching through ${broadResult.rows.length} messages from entire database history for attributedBody content`);
+      
+      // Filter by extracted text content
+      const searchLower = searchTerm.toLowerCase();
+      let processedCount = 0;
+      const attributedBodyMatches = broadResult.rows.filter((msg: MessageRow) => {
+        processedCount++;
+        if (processedCount % 1000 === 0) {
+          console.log(`🔍 Processed ${processedCount} messages...`);
+        }
+        
+        // Skip if already in direct results
+        if (messages.some(existing => existing.id === msg.id)) {
+          return false;
+        }
+        
+        const extractedText = this.extractMessageText(msg);
+        const matches = extractedText.toLowerCase().includes(searchLower);
+        if (matches) {
+          const messageDate = this.convertAppleTimestamp(msg.date);
+          console.log(`🎯 AttributedBody match for message ${msg.id} from ${messageDate.toLocaleDateString()}: "${extractedText.substring(0, 150)}"`);
+        }
+        return matches;
+      });
+      
+      console.log(`Found ${attributedBodyMatches.length} additional matches in attributedBody content across all history`);
+      
+      // Combine all results
+      const allMatches = [...messages, ...attributedBodyMatches];
+      
+      // Sort by date (most recent first) and limit to requested amount
+      const sortedMatches = allMatches
+        .sort((a, b) => b.date - a.date)
+        .slice(0, limit);
+      
+      console.log(`📊 Total historical results: ${allMatches.length}, returning top ${sortedMatches.length}`);
+      
+      const processedMessages: ProcessedMessage[] = sortedMatches.map((msg) => ({
         id: msg.id,
         text: this.extractMessageText(msg),
         isFromMe: msg.is_from_me === 1,
@@ -360,13 +459,13 @@ Path attempted: ${expandedPath}
         handleName: this.formatPhoneNumber(msg.handle_name || ''),
         isGroupMessage: false,
         chatId: msg.chat_id || 0,
-        isSMS: false, // No SMS messages will be processed now
+        isSMS: false,
       }));
 
-      console.log(`✅ Processed ${processedMessages.length} search results`);
+      console.log(`✅ Processed ${processedMessages.length} final historical search results`);
       return processedMessages;
     } catch (error) {
-      console.error('❌ Error searching messages:', error);
+      console.error('❌ Error searching historical messages:', error);
       throw error;
     }
   }
@@ -398,7 +497,9 @@ Path attempted: ${expandedPath}
           bodyStr = message.attributedBody.toString();
         }
         
-        // Look for readable text patterns
+        // Enhanced BLOB parsing for missing messages
+        
+        // Method 1: Look for readable ASCII text patterns
         const readableTextMatches = bodyStr.match(/[\x20-\x7E]{4,}/g);
         if (readableTextMatches && readableTextMatches.length > 0) {
           // Filter out common binary/encoded patterns
@@ -416,6 +517,34 @@ Path attempted: ${expandedPath}
             const longestMatch = filteredMatches.reduce((a: string, b: string) => a.length > b.length ? a : b);
             if (longestMatch.length > 4) {
               return longestMatch.trim();
+            }
+          }
+        }
+        
+        // Method 2: Try to parse as Apple's NSAttributedString format
+        if (message.attributedBody && typeof message.attributedBody === 'object' && message.attributedBody.data) {
+          const bytes = message.attributedBody.data;
+          if (Array.isArray(bytes)) {
+            // Look for UTF-8 encoded text in the byte array
+            let text = '';
+            for (let i = 0; i < bytes.length - 3; i++) {
+              // Look for sequences of printable characters
+              if (bytes[i] >= 32 && bytes[i] <= 126) {
+                let sequence = '';
+                let j = i;
+                while (j < bytes.length && bytes[j] >= 32 && bytes[j] <= 126) {
+                  sequence += String.fromCharCode(bytes[j]);
+                  j++;
+                }
+                if (sequence.length > text.length && sequence.length > 10) {
+                  text = sequence;
+                }
+              }
+            }
+            
+            if (text.length > 10 && !text.includes('NSString') && !text.includes('bplist')) {
+              console.log(`🎯 Extracted text from BLOB: "${text}"`);
+              return text.trim();
             }
           }
         }
@@ -487,6 +616,284 @@ Path attempted: ${expandedPath}
     return resultDate;
   }
 
+
+  private debugAttributedBody(messageId: number, attributedBody: any): void {
+    console.log(`🔍 Deep dive into attributedBody for message ${messageId}:`);
+    
+    try {
+      // Log the raw object structure
+      console.log('Raw attributedBody type:', typeof attributedBody);
+      console.log('Raw attributedBody:', attributedBody);
+      console.log('Object keys:', attributedBody ? Object.keys(attributedBody) : 'null');
+      
+      // Try different ways to extract the data
+      if (attributedBody && typeof attributedBody === 'object') {
+        // Check if it's a React Native bridge object with data property
+        if (attributedBody.data && Array.isArray(attributedBody.data)) {
+          console.log('Found data array, length:', attributedBody.data.length);
+          console.log('First 100 bytes:', attributedBody.data.slice(0, 100));
+          
+          const bytes = attributedBody.data;
+          
+          // Convert entire byte array to hex for search
+          const hexString = bytes.map((b: number) => b.toString(16).padStart(2, '0')).join('');
+          console.log('Full hex representation length:', hexString.length);
+          console.log('Hex (first 400 chars):', hexString.substring(0, 400));
+          
+          // Search for specific hex patterns
+          const searchTermHex = 'brainwashed'.split('').map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+          console.log('Searching for hex pattern:', searchTermHex);
+          
+          if (hexString.includes(searchTermHex)) {
+            console.log('🎯 Found "brainwashed" pattern in hex data!');
+            
+            // Find the position and extract surrounding context
+            const position = hexString.indexOf(searchTermHex);
+            const start = Math.max(0, position - 100);
+            const end = Math.min(hexString.length, position + searchTermHex.length + 100);
+            const context = hexString.substring(start, end);
+            console.log('Context around found text (hex):', context);
+            
+            // Convert context back to ASCII where possible
+            const contextBytes = [];
+            for (let i = 0; i < context.length; i += 2) {
+              const hexByte = context.substring(i, i + 2);
+              const byte = parseInt(hexByte, 16);
+              contextBytes.push(byte);
+            }
+            
+            const asciiContext = contextBytes.map(b => b >= 32 && b <= 126 ? String.fromCharCode(b) : '.').join('');
+            console.log('Context as ASCII:', asciiContext);
+          }
+          
+          // Try to extract all printable ASCII sequences
+          let allText = '';
+          for (let i = 0; i < bytes.length; i++) {
+            if (bytes[i] >= 32 && bytes[i] <= 126) { // Printable ASCII
+              let sequence = '';
+              let j = i;
+              while (j < bytes.length && bytes[j] >= 32 && bytes[j] <= 126) {
+                sequence += String.fromCharCode(bytes[j]);
+                j++;
+              }
+              if (sequence.length > 4) { // Only show sequences of 4+ characters
+                console.log(`ASCII sequence at position ${i}: "${sequence}"`);
+                if (sequence.includes('brainwashed')) {
+                  console.log('🎯 Found "brainwashed" in ASCII sequence!');
+                }
+                allText += sequence + ' ';
+              }
+              i = j - 1; // Skip ahead
+            }
+          }
+          
+          if (allText.length > 0) {
+            console.log('All extracted ASCII text:', allText);
+          }
+        }
+        
+        // Check if it's a Data object (from Swift)
+        if (attributedBody.constructor && attributedBody.constructor.name === 'Data') {
+          console.log('Found Data object from Swift bridge');
+        }
+        
+        // Check other possible properties
+        for (const [key, value] of Object.entries(attributedBody)) {
+          if (typeof value === 'string' && value.length > 0) {
+            console.log(`String property ${key}:`, value);
+            if (value.includes('brainwashed')) {
+              console.log('🎯 Found "brainwashed" in string property!');
+            }
+          }
+        }
+      } else if (typeof attributedBody === 'string') {
+        console.log('AttributedBody is a string:', attributedBody);
+        if (attributedBody.includes('brainwashed')) {
+          console.log('🎯 Found "brainwashed" in string attributedBody!');
+        }
+      }
+      
+      // Try to JSON stringify and search for patterns
+      try {
+        const jsonStr = JSON.stringify(attributedBody);
+        console.log('JSON string length:', jsonStr.length);
+        if (jsonStr.includes('brainwashed')) {
+          console.log('🎯 Found "brainwashed" in JSON representation!');
+        }
+      } catch (e) {
+        console.log('Failed to JSON stringify attributedBody');
+      }
+      
+    } catch (error) {
+      console.log('Error debugging attributedBody:', error);
+    }
+  }
+
+  private async investigateDatabaseSchema(): Promise<void> {
+    console.log('🔍 === DATABASE SCHEMA INVESTIGATION ===');
+    
+    try {
+      // Get all tables in the database
+      const tablesResult = await ChatDatabaseModule.executeQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        []
+      );
+      
+      console.log('📋 All database tables:', tablesResult.rows.map(r => r.name));
+      
+      // Get detailed schema for message table
+      const messageSchemaResult = await ChatDatabaseModule.executeQuery(
+        "PRAGMA table_info(message)",
+        []
+      );
+      
+      console.log('📋 Message table schema:', messageSchemaResult.rows);
+      
+      // Check for any message-related tables
+      const messageTablesResult = await ChatDatabaseModule.executeQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%message%'",
+        []
+      );
+      
+      console.log('📋 Message-related tables:', messageTablesResult.rows);
+      
+    } catch (error) {
+      console.error('❌ Schema investigation failed:', error);
+    }
+  }
+
+  private async searchForMissingText(searchText: string): Promise<void> {
+    console.log(`🔍 === SEARCHING FOR "${searchText}" IN ALL FIELDS ===`);
+    
+    try {
+      // First, check the main message table more thoroughly
+      console.log('🔍 === SEARCHING MAIN MESSAGE TABLE ===');
+      const messageSearchResult = await ChatDatabaseModule.executeQuery(
+        `SELECT ROWID, text, attributedBody, subject, message_summary_info, payload_data, 
+                balloon_bundle_id, date, is_from_me, handle_id
+         FROM message 
+         WHERE ROWID IN (SELECT message_id FROM chat_message_join WHERE chat_id = 130)
+         ORDER BY date DESC
+         LIMIT 50`,
+        []
+      );
+      
+      console.log(`📋 Found ${messageSearchResult.rows.length} recent messages for chat 130`);
+      
+      // Check each message for the search text in any form
+      let foundText = false;
+      messageSearchResult.rows.forEach((row, index) => {
+        if (row.text && row.text.includes(searchText)) {
+          console.log(`🎯 Found "${searchText}" in text field of message ${row.ROWID}:`, row.text);
+          foundText = true;
+        }
+        if (row.subject && row.subject.includes(searchText)) {
+          console.log(`🎯 Found "${searchText}" in subject field of message ${row.ROWID}:`, row.subject);
+          foundText = true;
+        }
+        if (row.attributedBody) {
+          const bodyStr = JSON.stringify(row.attributedBody);
+          if (bodyStr.includes(searchText)) {
+            console.log(`🎯 Found "${searchText}" in attributedBody of message ${row.ROWID}`);
+            foundText = true;
+            this.debugAttributedBody(row.ROWID, row.attributedBody);
+          }
+        }
+      });
+      
+      if (!foundText) {
+        console.log(`❌ Text "${searchText}" not found in standard message fields`);
+      }
+      
+      // Check deleted_messages table
+      console.log('🔍 === CHECKING DELETED_MESSAGES TABLE ===');
+      try {
+        // First get the schema
+        const deletedSchemaResult = await ChatDatabaseModule.executeQuery(
+          `PRAGMA table_info(deleted_messages)`,
+          []
+        );
+        console.log('📋 Deleted messages schema:', deletedSchemaResult.rows);
+        
+        // Get all deleted messages to see what's there
+        const allDeletedResult = await ChatDatabaseModule.executeQuery(
+          `SELECT * FROM deleted_messages LIMIT 50`,
+          []
+        );
+        console.log(`🗑️ Found ${allDeletedResult.rows.length} total deleted messages`);
+        
+        // Search in deleted messages
+        allDeletedResult.rows.forEach((row, index) => {
+          const rowStr = JSON.stringify(row);
+          if (rowStr.includes(searchText)) {
+            console.log(`🎯 Found "${searchText}" in deleted message:`, row);
+          }
+        });
+        
+      } catch (e) {
+        console.log('❌ Deleted messages table access failed:', e);
+      }
+      
+      // Check recoverable_message_part table
+      console.log('🔍 === CHECKING RECOVERABLE_MESSAGE_PART TABLE ===');
+      try {
+        // First get the schema
+        const recoverableSchemaResult = await ChatDatabaseModule.executeQuery(
+          `PRAGMA table_info(recoverable_message_part)`,
+          []
+        );
+        console.log('📋 Recoverable message part schema:', recoverableSchemaResult.rows);
+        
+        // Get all recoverable parts
+        const allRecoverableResult = await ChatDatabaseModule.executeQuery(
+          `SELECT * FROM recoverable_message_part LIMIT 50`,
+          []
+        );
+        console.log(`🔄 Found ${allRecoverableResult.rows.length} total recoverable message parts`);
+        
+        // Search in recoverable parts
+        allRecoverableResult.rows.forEach((row, index) => {
+          const rowStr = JSON.stringify(row);
+          if (rowStr.includes(searchText)) {
+            console.log(`🎯 Found "${searchText}" in recoverable message part:`, row);
+          }
+        });
+        
+      } catch (e) {
+        console.log('❌ Recoverable message parts table access failed:', e);
+      }
+      
+      // Check message_processing_task table
+      console.log('🔍 === CHECKING MESSAGE_PROCESSING_TASK TABLE ===');
+      try {
+        const taskSchemaResult = await ChatDatabaseModule.executeQuery(
+          `PRAGMA table_info(message_processing_task)`,
+          []
+        );
+        console.log('📋 Message processing task schema:', taskSchemaResult.rows);
+        
+        const allTasksResult = await ChatDatabaseModule.executeQuery(
+          `SELECT * FROM message_processing_task LIMIT 50`,
+          []
+        );
+        console.log(`📋 Found ${allTasksResult.rows.length} message processing tasks`);
+        
+        // Search in tasks
+        allTasksResult.rows.forEach((row, index) => {
+          const rowStr = JSON.stringify(row);
+          if (rowStr.includes(searchText)) {
+            console.log(`🎯 Found "${searchText}" in message processing task:`, row);
+          }
+        });
+        
+      } catch (e) {
+        console.log('❌ Message processing task table access failed:', e);
+      }
+      
+    } catch (error) {
+      console.error('❌ Text search failed:', error);
+    }
+  }
 
   private formatPhoneNumber(phoneNumber: string): string {
     if (!phoneNumber) return 'Unknown';

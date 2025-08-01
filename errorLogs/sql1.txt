@@ -1,0 +1,15 @@
+SELECT
+  datetime(message.date / 1000000000 + strftime('%s','2001-01-01'), 'unixepoch') AS timestamp,
+  handle.id AS sender_or_recipient,
+  message.is_from_me,
+  message.text
+FROM
+  message
+JOIN handle ON message.handle_id = handle.rowid
+JOIN chat_message_join ON message.rowid = chat_message_join.message_id
+JOIN chat ON chat.rowid = chat_message_join.chat_id
+WHERE
+  handle.id LIKE '%+12345556666%' AND
+  message.text LIKE '%rent%'
+ORDER BY
+  message.date ASC;

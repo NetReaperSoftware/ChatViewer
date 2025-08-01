@@ -362,25 +362,43 @@ class ChatDatabaseManager: NSObject {
     }
     
     @objc func searchMessages(_ searchTerm: String, limit: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        print("🔍 Searching for term: '\(searchTerm)' across ALL message history (no time limit)")
+        
         let sql = """
             SELECT 
                 m.ROWID as id,
                 m.text,
+                m.attributedBody,
                 m.is_from_me,
                 m.date,
+                m.handle_id,
                 h.id as handle_name,
-                cmj.chat_id
+                c.ROWID as chat_id,
+                c.display_name as chat_display_name,
+                c.chat_identifier,
+                m.service as message_service,
+                m.subject,
+                m.cache_has_attachments,
+                m.associated_message_guid,
+                m.balloon_bundle_id
             FROM message m
             LEFT JOIN handle h ON m.handle_id = h.ROWID
-            JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-            WHERE m.text LIKE ?
-            AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
+            LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+            LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+            WHERE (
+                m.text LIKE ? OR 
+                m.subject LIKE ? OR 
+                m.associated_message_guid LIKE ? OR
+                h.id LIKE ? OR
+                c.chat_identifier LIKE ? OR
+                c.display_name LIKE ?
+            )
             ORDER BY m.date DESC
-            LIMIT ?
         """
         
         let searchPattern = "%\(searchTerm)%"
-        executeQuery(sql, params: [searchPattern, limit], resolver: resolve, rejecter: reject)
+        print("🔍 Executing historical search across all messages with pattern: '\(searchPattern)'")
+        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern], resolver: resolve, rejecter: reject)
     }
     
     @objc func getMessagesForChat(_ chatId: Int, limit: Int, offset: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
