@@ -394,11 +394,12 @@ class ChatDatabaseManager: NSObject {
                 c.display_name LIKE ?
             )
             ORDER BY m.date DESC
+            LIMIT ?
         """
         
         let searchPattern = "%\(searchTerm)%"
-        print("🔍 Executing historical search across all messages with pattern: '\(searchPattern)'")
-        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern], resolver: resolve, rejecter: reject)
+        print("🔍 Executing historical search across all messages with pattern: '\(searchPattern)' with limit: \(limit)")
+        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, limit], resolver: resolve, rejecter: reject)
     }
     
     @objc func getMessagesForChat(_ chatId: Int, limit: Int, offset: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {

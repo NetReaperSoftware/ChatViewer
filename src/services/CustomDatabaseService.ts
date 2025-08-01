@@ -470,6 +470,92 @@ Path attempted: ${expandedPath}
     }
   }
 
+  async getMessagesAroundMessage(chatId: number, targetMessageId: number, contextSize: number = 50): Promise<{messages: ProcessedMessage[], targetIndex: number}> {
+    if (!this.connected) {
+      throw new Error('Database is not open');
+    }
+
+    console.log(`🎯 Loading messages around message ${targetMessageId} in chat ${chatId} (context: ${contextSize})`);
+    
+    try {
+      // Get all messages for the chat to find the target message position
+      const allMessagesResult = await ChatDatabaseModule.executeQuery(
+        `SELECT 
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              m.service as message_service,
+              m.subject,
+              m.cache_has_attachments
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+         WHERE cmj.chat_id = ?
+         AND (m.service NOT IN ('SMS', 'RCS') OR m.service IS NULL)
+         AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
+         ORDER BY m.date ASC`,
+        [chatId]
+      );
+      
+      const allMessages: MessageRow[] = allMessagesResult.rows;
+      console.log(`Found ${allMessages.length} total messages in chat ${chatId}`);
+      
+      // Find the target message index
+      const targetIndex = allMessages.findIndex(msg => msg.id === targetMessageId);
+      
+      if (targetIndex === -1) {
+        console.log(`❌ Target message ${targetMessageId} not found in chat ${chatId}`);
+        // Fallback: load recent messages for this chat
+        const fallbackMessages = await this.getMessagesForChat(chatId, 100, 0);
+        return { messages: fallbackMessages, targetIndex: -1 };
+      }
+      
+      console.log(`🎯 Found target message at index ${targetIndex} of ${allMessages.length}`);
+      
+      // Calculate the range around the target message
+      const startIndex = Math.max(0, targetIndex - contextSize);
+      const endIndex = Math.min(allMessages.length, targetIndex + contextSize + 1);
+      
+      console.log(`📝 Loading context from index ${startIndex} to ${endIndex} (${endIndex - startIndex} messages)`);
+      
+      // Get the messages in the range
+      const contextMessages = allMessages.slice(startIndex, endIndex);
+      
+      const processedMessages: ProcessedMessage[] = contextMessages.map((msg) => ({
+        id: msg.id,
+        text: this.extractMessageText(msg),
+        isFromMe: msg.is_from_me === 1,
+        timestamp: this.convertAppleTimestamp(msg.date),
+        handleId: msg.handle_id || 0,
+        handleName: this.formatPhoneNumber(msg.handle_name || ''),
+        attachments: [],
+        isGroupMessage: false,
+        chatId,
+        isSMS: false,
+      }));
+      
+      // The target message index in the context array
+      const contextTargetIndex = targetIndex - startIndex;
+      
+      console.log(`✅ Loaded ${processedMessages.length} messages with target at index ${contextTargetIndex}`);
+      
+      return { 
+        messages: processedMessages, 
+        targetIndex: contextTargetIndex 
+      };
+      
+    } catch (error) {
+      console.error('❌ Error loading messages around target:', error);
+      // Fallback: load recent messages for this chat
+      const fallbackMessages = await this.getMessagesForChat(chatId, 100, 0);
+      return { messages: fallbackMessages, targetIndex: -1 };
+    }
+  }
+
   private extractMessageText(message: MessageRow): string {
     // Handle plain text messages - check for both null/undefined and empty string
     if (message.text && typeof message.text === 'string' && message.text.trim()) {

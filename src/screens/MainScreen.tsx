@@ -25,6 +25,7 @@ export const MainScreen: React.FC = () => {
   const [searchResults, setSearchResults] = useState<ProcessedMessage[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const systemColorScheme = useColorScheme();
   const [darkModeOverride, setDarkModeOverride] = useState<boolean | null>(null);
   const isDarkMode = darkModeOverride !== null ? darkModeOverride : systemColorScheme === 'dark';
@@ -182,17 +183,53 @@ export const MainScreen: React.FC = () => {
     }
   };
 
-  const handleSearchResultSelected = (message: ProcessedMessage) => {
+  const handleSearchResultSelected = async (message: ProcessedMessage) => {
     // Find the chat that contains this message
     const chat = chats.find(c => c.id === message.chatId);
-    if (chat) {
-      // Select the chat and clear search
-      setSelectedChat(chat);
-      setSearchQuery('');
-      setSearchResults([]);
+    if (!chat) {
+      console.error('Chat not found for message:', message.chatId);
+      return;
+    }
+
+    console.log(`🎯 Navigating to message ${message.id} in chat "${chat.displayName}"`);
+    
+    // Select the chat and clear search
+    setSelectedChat(chat);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsLoading(true);
+    setHighlightedMessageId(message.id);
+    
+    try {
+      // Load messages around the target message with context
+      const result = await withTimeout(
+        dbService.getMessagesAroundMessage(chat.id, message.id, 50), // 50 messages of context on each side
+        30000 // 30 second timeout
+      );
       
-      // Load messages for this chat
-      handleChatSelected(chat);
+      setMessages(result.messages);
+      setMessageOffset(result.messages.length); // Set offset for pagination
+      setHasMoreMessages(true); // There might be more messages to load
+      
+      console.log(`✅ Loaded ${result.messages.length} messages with target at index ${result.targetIndex}`);
+      
+      // Clear highlight after a few seconds
+      setTimeout(() => {
+        setHighlightedMessageId(null);
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Error navigating to message context:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert(
+        'Navigation Error',
+        `Failed to navigate to message: ${errorMessage}`
+      );
+      
+      // Fallback: load chat normally
+      await handleChatSelected(chat);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -246,6 +283,7 @@ export const MainScreen: React.FC = () => {
           onLoadMore={loadMoreMessages}
           isLoadingMore={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}
+          highlightedMessageId={highlightedMessageId}
         />
       </View>
       

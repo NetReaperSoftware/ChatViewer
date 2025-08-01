@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ interface MessageThreadProps {
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   hasMoreMessages?: boolean;
+  highlightedMessageId?: number | null;
 }
 
 export const MessageThread: React.FC<MessageThreadProps> = ({
@@ -26,13 +27,36 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
   onLoadMore,
   isLoadingMore = false,
   hasMoreMessages = false,
+  highlightedMessageId = null,
 }) => {
+  const flatListRef = useRef<FlatList>(null);
+
+  // Scroll to highlighted message when highlightedMessageId changes
+  useEffect(() => {
+    if (highlightedMessageId && messages.length > 0) {
+      const targetIndex = messages.findIndex(msg => msg.id === highlightedMessageId);
+      if (targetIndex !== -1) {
+        console.log(`📍 Scrolling to highlighted message at index ${targetIndex}`);
+        // Delay scrolling to ensure the list has rendered
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({
+            index: targetIndex,
+            animated: true,
+            viewPosition: 0.5, // Position in the middle of the screen
+          });
+        }, 100);
+      }
+    }
+  }, [highlightedMessageId, messages]);
   const renderMessage = ({ item }: { item: ProcessedMessage }) => {
+    const isHighlighted = highlightedMessageId === item.id;
+    
     return (
       <View
         style={[
           styles.messageContainer,
           item.isFromMe ? styles.messageFromMe : styles.messageFromOther,
+          isHighlighted && styles.messageContainerHighlighted,
         ]}
       >
         <View
@@ -44,6 +68,10 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
                   isDarkMode && (item.isSMS ? styles.bubbleFromMeSMSDark : styles.bubbleFromMeDark)
                 ]
               : [styles.bubbleFromOther, isDarkMode && styles.bubbleFromOtherDark],
+            isHighlighted && [
+              styles.messageBubbleHighlighted,
+              isDarkMode && styles.messageBubbleHighlightedDark
+            ],
           ]}
         >
           {!item.isFromMe && chat?.isGroupChat && (
@@ -177,6 +205,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
       </View>
       
       <FlatList
+        ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderMessage}
@@ -187,6 +216,16 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
         onScroll={handleScroll}
         scrollEventThrottle={400} // Throttle scroll events for performance
         ListFooterComponent={renderFooter}
+        onScrollToIndexFailed={(info) => {
+          console.warn('Failed to scroll to index:', info);
+          // Fallback: scroll to the approximate position
+          setTimeout(() => {
+            flatListRef.current?.scrollToOffset({
+              offset: info.index * 100, // Approximate message height
+              animated: true,
+            });
+          }, 100);
+        }}
       />
     </View>
   );
@@ -261,6 +300,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     flexDirection: 'row',
   },
+  messageContainerHighlighted: {
+    backgroundColor: 'rgba(255, 255, 0, 0.1)', // Yellow highlight background
+    borderRadius: 8,
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   messageFromMe: {
     justifyContent: 'flex-end',
   },
@@ -293,6 +339,19 @@ const styles = StyleSheet.create({
   },
   bubbleFromOtherDark: {
     backgroundColor: '#38383a',
+  },
+  messageBubbleHighlighted: {
+    borderWidth: 2,
+    borderColor: '#FFD700', // Gold border for highlight
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  messageBubbleHighlightedDark: {
+    borderColor: '#FFA500', // Orange border for dark mode
+    shadowColor: '#FFA500',
   },
   senderName: {
     fontSize: 12,
