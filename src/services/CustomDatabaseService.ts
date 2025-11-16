@@ -288,6 +288,188 @@ Path attempted: ${expandedPath}
     }
   }
 
+  async getMessagesAroundMessage(chatId: number, messageId: number, beforeCount: number = 10, afterCount: number = 10): Promise<ProcessedMessage[]> {
+    if (!this.connected) {
+      throw new Error('Database is not open');
+    }
+
+    console.log(`📨 Loading ${beforeCount} messages before and ${afterCount} after message ${messageId} in chat ${chatId}`);
+
+    try {
+      // Get the date of the target message first
+      const targetResult = await ChatDatabaseModule.executeQuery(
+        `SELECT date FROM message WHERE ROWID = ?`,
+        [messageId]
+      );
+
+      if (targetResult.rows.length === 0) {
+        console.warn(`⚠️ Message ${messageId} not found`);
+        return [];
+      }
+
+      const targetDate = targetResult.rows[0].date;
+      console.log(`🎯 Target message date: ${targetDate}`);
+
+      // Get messages before the target (older messages)
+      const beforeResult = await ChatDatabaseModule.executeQuery(
+        `SELECT
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              m.service as message_service
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+         WHERE cmj.chat_id = ? AND m.date < ?
+         ORDER BY m.date DESC
+         LIMIT ?`,
+        [chatId, targetDate, beforeCount]
+      );
+
+      // Get the target message itself
+      const targetMessageResult = await ChatDatabaseModule.executeQuery(
+        `SELECT
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              m.service as message_service
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         WHERE m.ROWID = ?`,
+        [messageId]
+      );
+
+      // Get messages after the target (newer messages)
+      const afterResult = await ChatDatabaseModule.executeQuery(
+        `SELECT
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              m.service as message_service
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+         WHERE cmj.chat_id = ? AND m.date > ?
+         ORDER BY m.date ASC
+         LIMIT ?`,
+        [chatId, targetDate, afterCount]
+      );
+
+      // Combine: before (reversed to be chronological) + target + after
+      // Use a Set to track IDs and avoid duplicates
+      const seenIds = new Set<number>();
+      const allMessages = [
+        ...beforeResult.rows.reverse(),
+        ...targetMessageResult.rows,
+        ...afterResult.rows
+      ].filter((msg: MessageRow) => {
+        if (seenIds.has(msg.id)) {
+          return false;
+        }
+        seenIds.add(msg.id);
+        return true;
+      });
+
+      console.log(`📊 Loaded ${beforeResult.rows.length} before + 1 target + ${afterResult.rows.length} after = ${allMessages.length} total (deduplicated)`);
+
+      const processedMessages: ProcessedMessage[] = allMessages.map((msg: MessageRow) => ({
+        id: msg.id,
+        text: this.extractMessageText(msg),
+        isFromMe: msg.is_from_me === 1,
+        timestamp: this.convertAppleTimestamp(msg.date),
+        handleId: msg.handle_id || 0,
+        handleName: this.formatPhoneNumber(msg.handle_name || ''),
+        attachments: [],
+        isGroupMessage: false,
+        chatId,
+        isSMS: false,
+      }));
+
+      console.log(`✅ Processed ${processedMessages.length} messages around message ${messageId}`);
+      return processedMessages;
+    } catch (error) {
+      console.error('❌ Error loading messages around target:', error);
+      throw error;
+    }
+  }
+
+  async getOlderMessages(chatId: number, beforeMessageId: number, count: number = 50): Promise<ProcessedMessage[]> {
+    if (!this.connected) {
+      throw new Error('Database is not open');
+    }
+
+    console.log(`📨 Loading ${count} older messages before message ${beforeMessageId} in chat ${chatId}`);
+
+    try {
+      // Get the date of the reference message
+      const refResult = await ChatDatabaseModule.executeQuery(
+        `SELECT date FROM message WHERE ROWID = ?`,
+        [beforeMessageId]
+      );
+
+      if (refResult.rows.length === 0) {
+        console.warn(`⚠️ Reference message ${beforeMessageId} not found`);
+        return [];
+      }
+
+      const refDate = refResult.rows[0].date;
+
+      // Get older messages (before the reference date)
+      const result = await ChatDatabaseModule.executeQuery(
+        `SELECT
+              m.ROWID as id,
+              m.text,
+              m.attributedBody,
+              m.is_from_me,
+              m.date,
+              m.handle_id,
+              h.id as handle_name,
+              m.service as message_service
+         FROM message m
+         LEFT JOIN handle h ON m.handle_id = h.ROWID
+         LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+         WHERE cmj.chat_id = ? AND m.date < ?
+         ORDER BY m.date DESC
+         LIMIT ?`,
+        [chatId, refDate, count]
+      );
+
+      const messages = result.rows.reverse(); // Reverse to chronological order
+
+      console.log(`📊 Loaded ${messages.length} older messages`);
+
+      const processedMessages: ProcessedMessage[] = messages.map((msg: MessageRow) => ({
+        id: msg.id,
+        text: this.extractMessageText(msg),
+        isFromMe: msg.is_from_me === 1,
+        timestamp: this.convertAppleTimestamp(msg.date),
+        handleId: msg.handle_id || 0,
+        handleName: this.formatPhoneNumber(msg.handle_name || ''),
+        attachments: [],
+        isGroupMessage: false,
+        chatId,
+        isSMS: false,
+      }));
+
+      return processedMessages;
+    } catch (error) {
+      console.error('❌ Error loading older messages:', error);
+      throw error;
+    }
+  }
+
   async getMessagesForChat(chatId: number, limit: number = 100, offset: number = 0): Promise<ProcessedMessage[]> {
     if (!this.connected) {
       throw new Error('Database is not open');

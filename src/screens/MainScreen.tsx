@@ -26,6 +26,7 @@ export const MainScreen: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [contextWindowSize, setContextWindowSize] = useState(40); // Start with 40 before/after
   const systemColorScheme = useColorScheme();
   const [darkModeOverride, setDarkModeOverride] = useState<boolean | null>(null);
   const isDarkMode = darkModeOverride !== null ? darkModeOverride : systemColorScheme === 'dark';
@@ -119,34 +120,37 @@ export const MainScreen: React.FC = () => {
     }
   };
 
-  const loadMoreMessages = async () => {
-    if (!selectedChat || isLoadingMoreMessages || !hasMoreMessages) {
+  const expandContextWindow = async () => {
+    if (!selectedChat || !highlightedMessageId || isLoadingMoreMessages) {
       return;
     }
 
     setIsLoadingMoreMessages(true);
-    
+
     try {
-      console.log(`Loading more messages for: ${selectedChat.displayName} (offset: ${messageOffset})`);
-      const moreMessages = await withTimeout(
-        dbService.getMessagesForChat(selectedChat.id, 100, messageOffset),
-        10000 // 10 second timeout
+      // Expand by 100 messages in each direction
+      const newWindowSize = contextWindowSize + 100;
+      console.log(`Expanding context window from ${contextWindowSize} to ${newWindowSize} around message ${highlightedMessageId}`);
+
+      const expandedMessages = await withTimeout(
+        dbService.getMessagesAroundMessage(selectedChat.id, highlightedMessageId, newWindowSize, newWindowSize),
+        15000 // 15 second timeout
       );
-      
-      if (moreMessages.length > 0) {
-        setMessages(prevMessages => [...prevMessages, ...moreMessages]);
-        setMessageOffset(prevOffset => prevOffset + moreMessages.length);
-        setHasMoreMessages(moreMessages.length === 100);
-        console.log(`Loaded ${moreMessages.length} more messages (total: ${messages.length + moreMessages.length})`);
+
+      if (expandedMessages.length > messages.length) {
+        setMessages(expandedMessages);
+        setContextWindowSize(newWindowSize);
+        console.log(`Expanded context window: now showing ${expandedMessages.length} messages`);
       } else {
+        // No more messages available
         setHasMoreMessages(false);
-        console.log('No more messages to load');
+        console.log('Reached full conversation history');
       }
     } catch (error) {
-      console.error('Error loading more messages:', error);
+      console.error('Error expanding context window:', error);
       Alert.alert(
-        'Error Loading More Messages',
-        'Failed to load additional messages. Please try again.'
+        'Error Expanding Context',
+        'Failed to load more messages. Please try again.'
       );
     } finally {
       setIsLoadingMoreMessages(false);
@@ -190,37 +194,39 @@ export const MainScreen: React.FC = () => {
     if (chat) {
       // Set highlighted message first
       setHighlightedMessageId(message.id);
-      
+
       // Select the chat and clear search
       setSelectedChat(chat);
       setSearchQuery('');
       setSearchResults([]);
-      
-      // Load messages for this chat and navigate to the highlighted message
+
+      // Load messages around the highlighted message for focused context
       setIsLoading(true);
       setMessages([]); // Clear previous messages immediately
-      setMessageOffset(0); // Reset pagination
-      setHasMoreMessages(true);
-      
+      setMessageOffset(0); // Reset pagination (will be managed differently now)
+      setHasMoreMessages(true); // Can load more in both directions
+
       try {
-        console.log(`Loading messages for navigation to message ${message.id} in: ${chat.displayName}`);
-        
-        // Load a larger batch to ensure we capture the context around the highlighted message
-        const chatMessages = await withTimeout(
-          dbService.getMessagesForChat(chat.id, 500, 0), // Load first 500 messages for better context
+        console.log(`Loading focused context around message ${message.id} in: ${chat.displayName}`);
+
+        // Reset context window size to initial 40
+        setContextWindowSize(40);
+
+        // Load messages before and after the target message
+        const contextMessages = await withTimeout(
+          dbService.getMessagesAroundMessage(chat.id, message.id, 40, 40),
           15000 // 15 second timeout
         );
-        
-        setMessages(chatMessages);
-        setMessageOffset(500); // Next batch starts at 500
-        setHasMoreMessages(chatMessages.length === 500);
-        
-        console.log(`Loaded ${chatMessages.length} messages for navigation, highlighting message ${message.id}`);
+
+        setMessages(contextMessages);
+        setHasMoreMessages(true); // Can expand context window
+
+        console.log(`Loaded ${contextMessages.length} messages around message ${message.id} (highlighted)`);
       } catch (error) {
         console.error('Error loading messages for navigation:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Alert.alert(
-          'Navigation Error', 
+          'Navigation Error',
           `Failed to load messages for navigation: ${errorMessage}`
         );
       } finally {
@@ -276,7 +282,7 @@ export const MainScreen: React.FC = () => {
           messages={messages}
           isLoading={isLoading}
           isDarkMode={isDarkMode}
-          onLoadMore={loadMoreMessages}
+          onLoadMore={expandContextWindow}
           isLoadingMore={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}
           highlightedMessageId={highlightedMessageId}

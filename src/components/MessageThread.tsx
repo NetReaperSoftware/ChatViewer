@@ -5,6 +5,7 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
 
@@ -36,14 +37,21 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
     if (highlightedMessageId && messages.length > 0) {
       const messageIndex = messages.findIndex(msg => msg.id === highlightedMessageId);
       if (messageIndex !== -1) {
-        // Small delay to ensure FlatList is ready
-        setTimeout(() => {
-          flatListRef.current?.scrollToIndex({
-            index: messageIndex,
-            animated: true,
-            viewPosition: 0.5, // Center the highlighted message
-          });
-        }, 100);
+        console.log(`📍 Scrolling to message at index ${messageIndex}/${messages.length} (id: ${highlightedMessageId})`);
+
+        // With focused loading, the list is small so scrolling should be reliable
+        // Use a shorter delay since we only have ~40 items max
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({
+              index: messageIndex,
+              animated: true,
+              viewPosition: 0.5, // Center the highlighted message
+            });
+          }, 150); // Shorter delay for small lists
+        });
+      } else {
+        console.warn(`⚠️ Highlighted message ${highlightedMessageId} not found in current message list`);
       }
     }
   }, [highlightedMessageId, messages]);
@@ -152,33 +160,56 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
   }
 
   const handleScroll = (event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    
-    // Check if user scrolled to the bottom (within 50px)
-    const isNearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 50;
-    
-    if (isNearBottom && hasMoreMessages && !isLoadingMore && onLoadMore) {
-      onLoadMore();
-    }
+    // Scroll loading disabled - using static context window only
+    // No pagination to prevent duplicates and crashes
   };
 
   const renderFooter = () => {
-    if (!hasMoreMessages) {
+    // Show context window message if this is a search result view
+    if (highlightedMessageId) {
+      if (isLoadingMore) {
+        return (
+          <View style={[styles.loadMoreContainer, isDarkMode && styles.loadMoreContainerDark]}>
+            <ActivityIndicator size="small" color={isDarkMode ? '#fff' : '#007bff'} />
+            <Text style={[styles.loadMoreText, isDarkMode && styles.loadMoreTextDark]}>
+              Expanding context window...
+            </Text>
+          </View>
+        );
+      }
+
+      if (hasMoreMessages && onLoadMore) {
+        return (
+          <View style={[styles.loadMoreContainer, isDarkMode && styles.loadMoreContainerDark]}>
+            <Text style={[styles.contextWindowText, isDarkMode && styles.contextWindowTextDark]}>
+              • Showing context around search result •
+            </Text>
+            <TouchableOpacity
+              style={[styles.loadMoreButton, isDarkMode && styles.loadMoreButtonDark]}
+              onPress={onLoadMore}
+            >
+              <Text style={[styles.loadMoreButtonText, isDarkMode && styles.loadMoreButtonTextDark]}>
+                Load More Context (±100 messages)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+
       return (
         <View style={[styles.endOfMessagesContainer, isDarkMode && styles.endOfMessagesContainerDark]}>
           <Text style={[styles.endOfMessagesText, isDarkMode && styles.endOfMessagesTextDark]}>
-            • Beginning of conversation •
+            • Showing full conversation •
           </Text>
         </View>
       );
     }
 
-    if (isLoadingMore) {
+    if (!hasMoreMessages) {
       return (
-        <View style={[styles.loadMoreContainer, isDarkMode && styles.loadMoreContainerDark]}>
-          <ActivityIndicator size="small" color={isDarkMode ? '#fff' : '#007bff'} />
-          <Text style={[styles.loadMoreText, isDarkMode && styles.loadMoreTextDark]}>
-            Loading more messages...
+        <View style={[styles.endOfMessagesContainer, isDarkMode && styles.endOfMessagesContainerDark]}>
+          <Text style={[styles.endOfMessagesText, isDarkMode && styles.endOfMessagesTextDark]}>
+            • Beginning of conversation •
           </Text>
         </View>
       );
@@ -212,15 +243,35 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
         onScroll={handleScroll}
         scrollEventThrottle={400} // Throttle scroll events for performance
         ListFooterComponent={renderFooter}
+        maxToRenderPerBatch={20} // Render more items per batch for better scrollToIndex
+        updateCellsBatchingPeriod={100} // Give more time for batching
+        initialNumToRender={20} // Render more items initially
+        windowSize={21} // Keep more items in memory
         onScrollToIndexFailed={(info) => {
-          // Fallback if scrollToIndex fails
+          // Fallback if scrollToIndex fails - retry with scrollToOffset
           console.warn('ScrollToIndex failed:', info);
+          console.log(`⚠️ Retrying scroll: target index ${info.index}, measured up to ${info.highestMeasuredFrameIndex}`);
+
+          // Wait for more items to be rendered and measured, then retry
+          const retryDelay = 500;
           setTimeout(() => {
-            flatListRef.current?.scrollToOffset({
-              offset: info.averageItemLength * info.index,
-              animated: true,
-            });
-          }, 100);
+            // Try scrollToIndex again first
+            try {
+              flatListRef.current?.scrollToIndex({
+                index: info.index,
+                animated: false, // Use non-animated to be more reliable
+                viewPosition: 0.5,
+              });
+              console.log(`✅ Retry scrollToIndex succeeded for index ${info.index}`);
+            } catch (error) {
+              // If still failing, use scrollToOffset as last resort
+              console.log(`⚠️ ScrollToIndex retry failed, using scrollToOffset`);
+              flatListRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: true,
+              });
+            }
+          }, retryDelay);
         }}
       />
     </View>
@@ -419,11 +470,12 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   loadMoreContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#f8f9fa',
+    gap: 12,
   },
   loadMoreContainerDark: {
     backgroundColor: '#2c2c2e',
@@ -435,6 +487,32 @@ const styles = StyleSheet.create({
   },
   loadMoreTextDark: {
     color: '#999',
+  },
+  contextWindowText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  contextWindowTextDark: {
+    color: '#666',
+  },
+  loadMoreButton: {
+    backgroundColor: '#007bff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  loadMoreButtonDark: {
+    backgroundColor: '#0a84ff',
+  },
+  loadMoreButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  loadMoreButtonTextDark: {
+    color: '#fff',
   },
   endOfMessagesContainer: {
     justifyContent: 'center',
