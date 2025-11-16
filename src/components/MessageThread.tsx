@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ interface MessageThreadProps {
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   hasMoreMessages?: boolean;
+  highlightedMessageId?: number | null;
 }
 
 export const MessageThread: React.FC<MessageThreadProps> = ({
@@ -26,13 +27,35 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
   onLoadMore,
   isLoadingMore = false,
   hasMoreMessages = false,
+  highlightedMessageId = null,
 }) => {
+  const flatListRef = useRef<FlatList>(null);
+
+  // Auto-scroll to highlighted message when it changes
+  useEffect(() => {
+    if (highlightedMessageId && messages.length > 0) {
+      const messageIndex = messages.findIndex(msg => msg.id === highlightedMessageId);
+      if (messageIndex !== -1) {
+        // Small delay to ensure FlatList is ready
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({
+            index: messageIndex,
+            animated: true,
+            viewPosition: 0.5, // Center the highlighted message
+          });
+        }, 100);
+      }
+    }
+  }, [highlightedMessageId, messages]);
   const renderMessage = ({ item }: { item: ProcessedMessage }) => {
+    const isHighlighted = highlightedMessageId === item.id;
+    
     return (
       <View
         style={[
           styles.messageContainer,
           item.isFromMe ? styles.messageFromMe : styles.messageFromOther,
+          isHighlighted && styles.highlightedMessageContainer,
         ]}
       >
         <View
@@ -44,6 +67,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
                   isDarkMode && (item.isSMS ? styles.bubbleFromMeSMSDark : styles.bubbleFromMeDark)
                 ]
               : [styles.bubbleFromOther, isDarkMode && styles.bubbleFromOtherDark],
+            isHighlighted && (isDarkMode ? styles.highlightedBubbleDark : styles.highlightedBubble),
           ]}
         >
           {!item.isFromMe && chat?.isGroupChat && (
@@ -177,6 +201,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
       </View>
       
       <FlatList
+        ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderMessage}
@@ -187,6 +212,16 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
         onScroll={handleScroll}
         scrollEventThrottle={400} // Throttle scroll events for performance
         ListFooterComponent={renderFooter}
+        onScrollToIndexFailed={(info) => {
+          // Fallback if scrollToIndex fails
+          console.warn('ScrollToIndex failed:', info);
+          setTimeout(() => {
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * info.index,
+              animated: true,
+            });
+          }, 100);
+        }}
       />
     </View>
   );
@@ -417,5 +452,25 @@ const styles = StyleSheet.create({
   },
   endOfMessagesTextDark: {
     color: '#666',
+  },
+  highlightedMessageContainer: {
+    backgroundColor: 'rgba(255, 215, 0, 0.2)', // Light yellow highlight
+    borderRadius: 8,
+    marginHorizontal: -8,
+    paddingHorizontal: 8,
+  },
+  highlightedBubble: {
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  highlightedBubbleDark: {
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });

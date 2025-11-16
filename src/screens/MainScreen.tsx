@@ -25,6 +25,7 @@ export const MainScreen: React.FC = () => {
   const [searchResults, setSearchResults] = useState<ProcessedMessage[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const systemColorScheme = useColorScheme();
   const [darkModeOverride, setDarkModeOverride] = useState<boolean | null>(null);
   const isDarkMode = darkModeOverride !== null ? darkModeOverride : systemColorScheme === 'dark';
@@ -94,6 +95,7 @@ export const MainScreen: React.FC = () => {
     setMessages([]); // Clear previous messages immediately
     setMessageOffset(0); // Reset pagination
     setHasMoreMessages(true);
+    setHighlightedMessageId(null); // Clear any previous highlighting
     
     try {
       console.log(`Loading messages for: ${chat.displayName}`);
@@ -182,17 +184,48 @@ export const MainScreen: React.FC = () => {
     }
   };
 
-  const handleSearchResultSelected = (message: ProcessedMessage) => {
+  const handleSearchResultSelected = async (message: ProcessedMessage) => {
     // Find the chat that contains this message
     const chat = chats.find(c => c.id === message.chatId);
     if (chat) {
+      // Set highlighted message first
+      setHighlightedMessageId(message.id);
+      
       // Select the chat and clear search
       setSelectedChat(chat);
       setSearchQuery('');
       setSearchResults([]);
       
-      // Load messages for this chat
-      handleChatSelected(chat);
+      // Load messages for this chat and navigate to the highlighted message
+      setIsLoading(true);
+      setMessages([]); // Clear previous messages immediately
+      setMessageOffset(0); // Reset pagination
+      setHasMoreMessages(true);
+      
+      try {
+        console.log(`Loading messages for navigation to message ${message.id} in: ${chat.displayName}`);
+        
+        // Load a larger batch to ensure we capture the context around the highlighted message
+        const chatMessages = await withTimeout(
+          dbService.getMessagesForChat(chat.id, 500, 0), // Load first 500 messages for better context
+          15000 // 15 second timeout
+        );
+        
+        setMessages(chatMessages);
+        setMessageOffset(500); // Next batch starts at 500
+        setHasMoreMessages(chatMessages.length === 500);
+        
+        console.log(`Loaded ${chatMessages.length} messages for navigation, highlighting message ${message.id}`);
+      } catch (error) {
+        console.error('Error loading messages for navigation:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        Alert.alert(
+          'Navigation Error', 
+          `Failed to load messages for navigation: ${errorMessage}`
+        );
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -246,6 +279,7 @@ export const MainScreen: React.FC = () => {
           onLoadMore={loadMoreMessages}
           isLoadingMore={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}
+          highlightedMessageId={highlightedMessageId}
         />
       </View>
       

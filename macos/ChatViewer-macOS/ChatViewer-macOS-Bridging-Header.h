@@ -7,4 +7,5 @@
 
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
+#import <React/RCTBridge.h>
 #import <sqlite3.h>

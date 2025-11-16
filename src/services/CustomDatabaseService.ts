@@ -365,7 +365,9 @@ Path attempted: ${expandedPath}
     
     try {
       console.log(`🔍 Phase 1: SQL search across ALL historical messages (no time limit)`);
+      console.log(`🔍 Calling searchMessages with searchTerm="${searchTerm}", limit=${limit}`);
       const result = await ChatDatabaseModule.searchMessages(searchTerm, limit);
+      console.log(`🔍 searchMessages returned ${result.rows?.length || 0} rows`);
       let messages: MessageRow[] = result.rows;
       
       console.log(`Found ${messages.length} direct SQL matches for "${searchTerm}" across all history`);
@@ -386,59 +388,69 @@ Path attempted: ${expandedPath}
         }
       });
       
-      // ALWAYS search attributedBody content as well for historical messages
-      console.log(`🔍 Phase 2: Searching attributedBody content across ALL historical messages...`);
-      
-      // Get ALL messages from entire database history to search through their extracted text
-      const broadResult = await ChatDatabaseModule.executeQuery(
-        `SELECT 
-              m.ROWID as id,
-              m.text,
-              m.attributedBody,
-              m.is_from_me,
-              m.date,
-              m.handle_id,
-              h.id as handle_name,
-              c.ROWID as chat_id,
-              c.display_name as chat_display_name,
-              c.chat_identifier,
-              m.service as message_service,
-              m.subject,
-              m.cache_has_attachments
-         FROM message m
-         LEFT JOIN handle h ON m.handle_id = h.ROWID
-         LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-         LEFT JOIN chat c ON c.ROWID = cmj.chat_id
-         ORDER BY m.date DESC`,
-        [] // NO LIMIT - search through ALL messages in entire database
-      );
-      
-      console.log(`🕰️ Searching through ${broadResult.rows.length} messages from entire database history for attributedBody content`);
-      
-      // Filter by extracted text content
-      const searchLower = searchTerm.toLowerCase();
-      let processedCount = 0;
-      const attributedBodyMatches = broadResult.rows.filter((msg: MessageRow) => {
-        processedCount++;
-        if (processedCount % 1000 === 0) {
-          console.log(`🔍 Processed ${processedCount} messages...`);
-        }
-        
-        // Skip if already in direct results
-        if (messages.some(existing => existing.id === msg.id)) {
-          return false;
-        }
-        
-        const extractedText = this.extractMessageText(msg);
-        const matches = extractedText.toLowerCase().includes(searchLower);
-        if (matches) {
-          const messageDate = this.convertAppleTimestamp(msg.date);
-          console.log(`🎯 AttributedBody match for message ${msg.id} from ${messageDate.toLocaleDateString()}: "${extractedText.substring(0, 150)}"`);
-        }
-        return matches;
-      });
-      
-      console.log(`Found ${attributedBodyMatches.length} additional matches in attributedBody content across all history`);
+      // Phase 2: Only search attributedBody if we didn't get enough results from Phase 1
+      let attributedBodyMatches: MessageRow[] = [];
+
+      if (messages.length < limit) {
+        console.log(`🔍 Phase 2: Searching attributedBody content (found ${messages.length}/${limit} in Phase 1)`);
+
+        // Get recent messages to search through their extracted text
+        // Limit to recent messages to avoid full table scan
+        const recentLimit = Math.max(limit * 10, 1000); // Search 10x the limit or minimum 1000 messages
+        const broadResult = await ChatDatabaseModule.executeQuery(
+          `SELECT
+                m.ROWID as id,
+                m.text,
+                m.attributedBody,
+                m.is_from_me,
+                m.date,
+                m.handle_id,
+                h.id as handle_name,
+                c.ROWID as chat_id,
+                c.display_name as chat_display_name,
+                c.chat_identifier,
+                m.service as message_service,
+                m.subject,
+                m.cache_has_attachments
+           FROM message m
+           LEFT JOIN handle h ON m.handle_id = h.ROWID
+           LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
+           LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+           WHERE m.attributedBody IS NOT NULL
+           ORDER BY m.date DESC
+           LIMIT ?`,
+          [recentLimit]
+        );
+
+        console.log(`🕰️ Searching through ${broadResult.rows.length} recent messages with attributedBody content`);
+
+        // Filter by extracted text content
+        const searchLower = searchTerm.toLowerCase();
+        let processedCount = 0;
+        attributedBodyMatches = broadResult.rows.filter((msg: MessageRow) => {
+          processedCount++;
+          if (processedCount % 1000 === 0) {
+            console.log(`🔍 Processed ${processedCount} messages...`);
+          }
+
+          // Skip if already in direct results
+          if (messages.some(existing => existing.id === msg.id)) {
+            return false;
+          }
+
+          const extractedText = this.extractMessageText(msg);
+          const matches = extractedText.toLowerCase().includes(searchLower);
+          if (matches) {
+            const messageDate = this.convertAppleTimestamp(msg.date);
+            console.log(`🎯 AttributedBody match for message ${msg.id} from ${messageDate.toLocaleDateString()}: "${extractedText.substring(0, 150)}"`);
+          }
+          return matches;
+        });
+
+        console.log(`Found ${attributedBodyMatches.length} additional matches in attributedBody content`);
+      } else {
+        console.log(`🔍 Phase 2: Skipped (already have ${messages.length} results from Phase 1)`);
+      }
       
       // Combine all results
       const allMatches = [...messages, ...attributedBodyMatches];

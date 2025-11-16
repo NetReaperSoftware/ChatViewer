@@ -151,7 +151,7 @@ class ChatDatabaseManager: NSObject {
     
     private func configureDatabase() {
         guard let db = self.db else { return }
-        
+
         // Set pragmas for better performance with large databases
         let pragmas = [
             "PRAGMA synchronous = OFF",
@@ -159,7 +159,7 @@ class ChatDatabaseManager: NSObject {
             "PRAGMA temp_store = memory",
             "PRAGMA mmap_size = 268435456" // 256MB
         ]
-        
+
         for pragma in pragmas {
             var statement: OpaquePointer?
             if sqlite3_prepare_v2(db, pragma, -1, &statement, nil) == SQLITE_OK {
@@ -167,10 +167,69 @@ class ChatDatabaseManager: NSObject {
             }
             sqlite3_finalize(statement)
         }
-        
+
+        // Create search performance indices if they don't exist
+        print("🔍 Creating search performance indices...")
+        createSearchIndices()
+
         print("🚀 Database configured for performance")
     }
-    
+
+    private func createSearchIndices() {
+        guard let db = self.db else { return }
+
+        // Indices to improve search performance
+        // Using IF NOT EXISTS to safely create indices on existing databases
+        let indices = [
+            // Index on message.date for ORDER BY date DESC
+            "CREATE INDEX IF NOT EXISTS idx_message_date ON message(date DESC)",
+
+            // Index on message.text for LIKE searches (partial match from beginning)
+            // Note: SQLite can use indices for LIKE 'term%' but not '%term%'
+            // This helps with prefix searches and general query optimization
+            "CREATE INDEX IF NOT EXISTS idx_message_text ON message(text)",
+
+            // Index on message.handle_id for joins
+            "CREATE INDEX IF NOT EXISTS idx_message_handle ON message(handle_id)",
+
+            // Index on chat_message_join for joins
+            "CREATE INDEX IF NOT EXISTS idx_chat_message_chat ON chat_message_join(chat_id)",
+            "CREATE INDEX IF NOT EXISTS idx_chat_message_msg ON chat_message_join(message_id)",
+
+            // Index on handle.id for searches and joins
+            "CREATE INDEX IF NOT EXISTS idx_handle_id ON handle(id)",
+
+            // Index on chat fields for searches
+            "CREATE INDEX IF NOT EXISTS idx_chat_identifier ON chat(chat_identifier)",
+            "CREATE INDEX IF NOT EXISTS idx_chat_display_name ON chat(display_name)",
+
+            // Composite index for common search pattern: date + text
+            "CREATE INDEX IF NOT EXISTS idx_message_date_text ON message(date DESC, text)"
+        ]
+
+        for indexSQL in indices {
+            var statement: OpaquePointer?
+            if sqlite3_prepare_v2(db, indexSQL, -1, &statement, nil) == SQLITE_OK {
+                let result = sqlite3_step(statement)
+                if result == SQLITE_DONE {
+                    // Extract index name from SQL for logging
+                    if let indexName = indexSQL.components(separatedBy: "idx_").last?.components(separatedBy: " ").first {
+                        print("✅ Index idx_\(indexName) ready")
+                    }
+                } else if result != SQLITE_OK {
+                    let errorMessage = String(cString: sqlite3_errmsg(db))
+                    print("⚠️ Index creation returned \(result): \(errorMessage)")
+                }
+            } else {
+                let errorMessage = String(cString: sqlite3_errmsg(db))
+                print("❌ Failed to prepare index: \(errorMessage)")
+            }
+            sqlite3_finalize(statement)
+        }
+
+        print("✅ Search indices configured")
+    }
+
     @objc func closeDatabase() {
         if let db = self.db {
             sqlite3_close(db)
@@ -234,15 +293,21 @@ class ChatDatabaseManager: NSObject {
             // Bind parameters
             for (index, param) in params.enumerated() {
                 let bindIndex = Int32(index + 1)
-                
+
                 if let stringParam = param as? String {
-                    sqlite3_bind_text(statement, bindIndex, stringParam, -1, nil)
+                    print("🔗 Binding param \(bindIndex) as STRING: '\(stringParam)'")
+                    sqlite3_bind_text(statement, bindIndex, (stringParam as NSString).utf8String, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
                 } else if let intParam = param as? Int {
+                    print("🔗 Binding param \(bindIndex) as INT: \(intParam)")
                     sqlite3_bind_int64(statement, bindIndex, Int64(intParam))
                 } else if let doubleParam = param as? Double {
+                    print("🔗 Binding param \(bindIndex) as DOUBLE: \(doubleParam)")
                     sqlite3_bind_double(statement, bindIndex, doubleParam)
                 } else if param is NSNull {
+                    print("🔗 Binding param \(bindIndex) as NULL")
                     sqlite3_bind_null(statement, bindIndex)
+                } else {
+                    print("⚠️ Unknown param type at \(bindIndex): \(type(of: param))")
                 }
             }
             
@@ -362,8 +427,9 @@ class ChatDatabaseManager: NSObject {
     }
     
     @objc func searchMessages(_ searchTerm: String, limit: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        NSLog("🔍🔍🔍 SEARCHMESSAGES CALLED - searchTerm: '\(searchTerm)', limit: \(limit)")
         print("🔍 Searching for term: '\(searchTerm)' across ALL message history (no time limit)")
-        
+
         let sql = """
             SELECT 
                 m.ROWID as id,
@@ -386,19 +452,20 @@ class ChatDatabaseManager: NSObject {
             LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
             LEFT JOIN chat c ON c.ROWID = cmj.chat_id
             WHERE (
-                m.text LIKE ? OR 
-                m.subject LIKE ? OR 
+                m.text LIKE ? OR
+                m.subject LIKE ? OR
                 m.associated_message_guid LIKE ? OR
                 h.id LIKE ? OR
                 c.chat_identifier LIKE ? OR
                 c.display_name LIKE ?
             )
             ORDER BY m.date DESC
+            LIMIT ?
         """
-        
+
         let searchPattern = "%\(searchTerm)%"
-        print("🔍 Executing historical search across all messages with pattern: '\(searchPattern)'")
-        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern], resolver: resolve, rejecter: reject)
+        print("🔍 Executing historical search with LIMIT \(limit) and pattern: '\(searchPattern)'")
+        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, limit], resolver: resolve, rejecter: reject)
     }
     
     @objc func getMessagesForChat(_ chatId: Int, limit: Int, offset: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
