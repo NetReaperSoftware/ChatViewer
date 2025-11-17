@@ -538,17 +538,42 @@ Path attempted: ${expandedPath}
     }
   }
 
-  async searchMessages(searchTerm: string, limit: number = 100): Promise<ProcessedMessage[]> {
+  private convertJsDateToAppleTimestamp(date: Date): number {
+    // Convert JavaScript Date to Apple timestamp (nanoseconds since Jan 1, 2001)
+    const unixTimestamp = date.getTime() / 1000; // Unix timestamp in seconds
+    const appleSeconds = unixTimestamp - 978307200; // Convert to Apple epoch
+    return appleSeconds * 1e9; // Convert to nanoseconds
+  }
+
+  async searchMessages(searchTerm: string, limit: number = 100, dateFilter?: any, phoneFilter?: string): Promise<ProcessedMessage[]> {
     if (!this.connected) {
       throw new Error('Database is not open');
     }
 
-    console.log(`🔍 Historical search for: "${searchTerm}" across ALL message history (${limit} results)`);
-    
+    let startDate: number = -1; // Use -1 as sentinel for "no filter"
+    let endDate: number = -1;
+
+    // Convert date filter to Apple timestamps
+    if (dateFilter && dateFilter.type === 'month') {
+      const year = dateFilter.year ?? new Date().getFullYear();
+      const month = dateFilter.month ?? 0;
+
+      const start = new Date(year, month, 1, 0, 0, 0);
+      const end = new Date(year, month + 1, 0, 23, 59, 59);
+
+      startDate = this.convertJsDateToAppleTimestamp(start);
+      endDate = this.convertJsDateToAppleTimestamp(end);
+
+      console.log(`🔍 Date filter: ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`);
+    }
+
+    const filterText = dateFilter && dateFilter.type !== 'all' ? ' with date filter' : '';
+    const phoneText = phoneFilter ? ` with phone filter: ${phoneFilter}` : '';
+    console.log(`🔍 Historical search for: "${searchTerm}"${filterText}${phoneText} (${limit} results)`);
+
     try {
-      console.log(`🔍 Phase 1: SQL search across ALL historical messages (no time limit)`);
-      console.log(`🔍 Calling searchMessages with searchTerm="${searchTerm}", limit=${limit}`);
-      const result = await ChatDatabaseModule.searchMessages(searchTerm, limit);
+      console.log(`🔍 Phase 1: SQL search${filterText}${phoneText}`);
+      const result = await ChatDatabaseModule.searchMessages(searchTerm, limit, startDate, endDate, phoneFilter || '');
       console.log(`🔍 searchMessages returned ${result.rows?.length || 0} rows`);
       let messages: MessageRow[] = result.rows;
       
@@ -579,6 +604,20 @@ Path attempted: ${expandedPath}
         // Get recent messages to search through their extracted text
         // Limit to recent messages to avoid full table scan
         const recentLimit = Math.max(limit * 10, 1000); // Search 10x the limit or minimum 1000 messages
+
+        // Build WHERE clause with phone filter if provided
+        let whereClause = 'WHERE m.attributedBody IS NOT NULL';
+        const queryParams: any[] = [];
+
+        if (phoneFilter) {
+          // Add phone number filtering - strip non-digits from handle and chat identifier
+          whereClause += ` AND (REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(h.id, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ? OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.chat_identifier, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ?)`;
+          const phonePattern = `%${phoneFilter}%`;
+          queryParams.push(phonePattern, phonePattern);
+        }
+
+        queryParams.push(recentLimit); // Add LIMIT parameter
+
         const broadResult = await ChatDatabaseModule.executeQuery(
           `SELECT
                 m.ROWID as id,
@@ -598,13 +637,13 @@ Path attempted: ${expandedPath}
            LEFT JOIN handle h ON m.handle_id = h.ROWID
            LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
            LEFT JOIN chat c ON c.ROWID = cmj.chat_id
-           WHERE m.attributedBody IS NOT NULL
+           ${whereClause}
            ORDER BY m.date DESC
            LIMIT ?`,
-          [recentLimit]
+          queryParams
         );
 
-        console.log(`🕰️ Searching through ${broadResult.rows.length} recent messages with attributedBody content`);
+        console.log(`🕰️ Searching through ${broadResult.rows.length} recent messages with attributedBody content${phoneFilter ? ` (filtered by phone: ${phoneFilter})` : ''}`);
 
         // Filter by extracted text content
         const searchLower = searchTerm.toLowerCase();

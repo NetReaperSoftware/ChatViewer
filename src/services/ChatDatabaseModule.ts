@@ -6,7 +6,7 @@ interface ChatDatabaseModuleInterface {
   closeDatabase(): void;
   executeQuery(sql: string, params: any[]): Promise<{rows: any[]; count: number}>;
   getChats(limit?: number): Promise<{rows: any[]; count: number}>;
-  searchMessages(searchTerm: string, limit: number): Promise<{rows: any[]; count: number}>;
+  searchMessages(searchTerm: string, limit: number, startDate: number, endDate: number, phoneFilter: string): Promise<{rows: any[]; count: number}>;
   getMessagesForChat(chatId: number, limit: number, offset: number): Promise<{rows: any[]; count: number}>;
 }
 

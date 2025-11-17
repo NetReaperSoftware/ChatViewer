@@ -22,6 +22,9 @@ RCT_EXTERN_METHOD(getChats:(NSInteger)limit
 
 RCT_EXTERN_METHOD(searchMessages:(NSString *)searchTerm
                   limit:(NSInteger)limit
+                  startDate:(nonnull NSNumber *)startDate
+                  endDate:(nonnull NSNumber *)endDate
+                  phoneFilter:(NSString *)phoneFilter
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

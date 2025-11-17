@@ -426,12 +426,14 @@ class ChatDatabaseManager: NSObject {
         executeQuery(sql, params: params, resolver: resolve, rejecter: reject)
     }
     
-    @objc func searchMessages(_ searchTerm: String, limit: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        NSLog("🔍🔍🔍 SEARCHMESSAGES CALLED - searchTerm: '\(searchTerm)', limit: \(limit)")
-        print("🔍 Searching for term: '\(searchTerm)' across ALL message history (no time limit)")
+    @objc func searchMessages(_ searchTerm: String, limit: Int, startDate: NSNumber, endDate: NSNumber, phoneFilter: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let hasDateFilter = startDate.intValue != -1 && endDate.intValue != -1
+        let hasPhoneFilter = !phoneFilter.isEmpty
+        NSLog("🔍🔍🔍 SEARCHMESSAGES CALLED - searchTerm: '\(searchTerm)', limit: \(limit), hasDateFilter: \(hasDateFilter), phoneFilter: '\(phoneFilter)'")
+        print("🔍 Searching for term: '\(searchTerm)' with date filter: \(hasDateFilter), phone filter: \(hasPhoneFilter)")
 
-        let sql = """
-            SELECT 
+        var sql = """
+            SELECT
                 m.ROWID as id,
                 m.text,
                 m.attributedBody,
@@ -459,13 +461,40 @@ class ChatDatabaseManager: NSObject {
                 c.chat_identifier LIKE ? OR
                 c.display_name LIKE ?
             )
-            ORDER BY m.date DESC
-            LIMIT ?
         """
 
+        var params: [Any] = []
         let searchPattern = "%\(searchTerm)%"
-        print("🔍 Executing historical search with LIMIT \(limit) and pattern: '\(searchPattern)'")
-        executeQuery(sql, params: [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, limit], resolver: resolve, rejecter: reject)
+
+        // Add search pattern parameters (6 total)
+        for _ in 0..<6 {
+            params.append(searchPattern)
+        }
+
+        // Add phone number filtering if provided
+        if hasPhoneFilter {
+            // Remove all non-digits for comparison - search in handle.id and chat.chat_identifier
+            // Use REPLACE to strip out non-digit characters from database values
+            sql += " AND (REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(h.id, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ? OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.chat_identifier, '+', ''), '-', ''), '(', ''), ')', ''), ' ', '') LIKE ?)"
+            let phonePattern = "%\(phoneFilter)%"
+            params.append(phonePattern)
+            params.append(phonePattern)
+            print("🔍 Phone filter applied: \(phoneFilter)")
+        }
+
+        // Add date filtering if provided (check for sentinel value -1)
+        if hasDateFilter {
+            sql += " AND m.date >= ? AND m.date <= ?"
+            params.append(startDate)
+            params.append(endDate)
+            print("🔍 Date filter applied: \(startDate) to \(endDate)")
+        }
+
+        sql += " ORDER BY m.date DESC LIMIT ?"
+        params.append(limit)
+
+        print("🔍 Executing search with \(params.count) parameters")
+        executeQuery(sql, params: params, resolver: resolve, rejecter: reject)
     }
     
     @objc func getMessagesForChat(_ chatId: Int, limit: Int, offset: Int, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {

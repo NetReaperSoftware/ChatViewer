@@ -11,6 +11,13 @@ import {
 } from 'react-native';
 import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
 
+export interface DateFilter {
+  type: 'all' | 'month' | 'day';
+  year?: number;
+  month?: number; // 0-11
+  day?: number;
+}
+
 interface ConversationListProps {
   chats: ProcessedChat[];
   selectedChat: ProcessedChat | null;
@@ -19,7 +26,7 @@ interface ConversationListProps {
   searchResults: ProcessedMessage[];
   searchQuery: string;
   isSearching: boolean;
-  onMessageSearch: (query: string) => void;
+  onMessageSearch: (query: string, dateFilter?: DateFilter | null, phoneFilter?: string) => void;
   onSearchResultSelected: (message: ProcessedMessage) => void;
   onToggleDarkMode: () => void;
 }
@@ -38,28 +45,71 @@ export const ConversationList: React.FC<ConversationListProps> = ({
 }) => {
   const [contactSearchText, setContactSearchText] = React.useState('');
   const [messageSearchText, setMessageSearchText] = React.useState('');
+  const [dateFilter, setDateFilter] = React.useState<DateFilter>({ type: 'all' });
+
+  // Helper function to normalize phone numbers (remove all non-digits)
+  const normalizePhoneNumber = (input: string): string => {
+    return input.replace(/\D/g, ''); // Remove all non-digit characters
+  };
 
   const filteredChats = React.useMemo(() => {
     if (!contactSearchText.trim()) return chats;
-    
-    return chats.filter(chat =>
-      chat.displayName.toLowerCase().includes(contactSearchText.toLowerCase()) ||
-      chat.participants.some(participant =>
-        participant.toLowerCase().includes(contactSearchText.toLowerCase())
-      )
-    );
+
+    const searchLower = contactSearchText.toLowerCase();
+    const searchDigits = normalizePhoneNumber(contactSearchText);
+    const isPhoneSearch = searchDigits.length >= 3; // At least 3 digits indicates phone search
+
+    return chats.filter(chat => {
+      // Search by display name
+      if (chat.displayName.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+
+      // Phone number search
+      if (isPhoneSearch) {
+        // Search in chat identifier (e.g., "+18633972188")
+        const chatIdentifier = chat.guid || '';
+        const chatDigits = normalizePhoneNumber(chatIdentifier);
+        if (chatDigits.includes(searchDigits)) {
+          return true;
+        }
+
+        // Search in participants phone numbers
+        const matchesParticipant = chat.participants.some(participant => {
+          const participantDigits = normalizePhoneNumber(participant);
+          return participantDigits.includes(searchDigits);
+        });
+        if (matchesParticipant) {
+          return true;
+        }
+      }
+
+      // Text search in participants (for non-phone searches)
+      return chat.participants.some(participant =>
+        participant.toLowerCase().includes(searchLower)
+      );
+    });
   }, [chats, contactSearchText]);
 
   // Handle message search with debouncing
   React.useEffect(() => {
     const timer = setTimeout(() => {
       if (messageSearchText.trim() !== searchQuery) {
-        onMessageSearch(messageSearchText);
+        const filter = dateFilter.type === 'all' ? null : dateFilter;
+        // Pass the phone number filter (normalized) if contact search is active
+        const phoneFilter = contactSearchText.trim() ? normalizePhoneNumber(contactSearchText) : undefined;
+        console.log('🔍 ConversationList: Triggering search with:', {
+          messageSearchText,
+          contactSearchText,
+          phoneFilter,
+          hasDateFilter: filter !== null
+        });
+        onMessageSearch(messageSearchText, filter, phoneFilter);
       }
     }, 500); // 500ms debounce
 
     return () => clearTimeout(timer);
-  }, [messageSearchText, searchQuery, onMessageSearch]);
+  }, [messageSearchText, searchQuery, dateFilter, contactSearchText, onMessageSearch]);
 
   const renderChatItem = ({ item }: { item: ProcessedChat }) => {
     const isSelected = selectedChat?.id === item.id;
@@ -208,6 +258,58 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           value={messageSearchText}
           onChangeText={setMessageSearchText}
         />
+
+        {/* Date Filter Controls */}
+        <View style={[styles.dateFilterRow, isDarkMode && styles.dateFilterRowDark]}>
+          <TouchableOpacity
+            style={[styles.filterButton, isDarkMode && styles.filterButtonDark, dateFilter.type === 'all' && styles.filterButtonActive]}
+            onPress={() => setDateFilter({ type: 'all' })}
+          >
+            <Text style={[styles.filterButtonText, isDarkMode && styles.filterButtonTextDark, dateFilter.type === 'all' && styles.filterButtonTextActive]}>
+              All time
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterButton, isDarkMode && styles.filterButtonDark, dateFilter.type === 'month' && styles.filterButtonActive]}
+            onPress={() => setDateFilter({ type: 'month', month: new Date().getMonth(), year: new Date().getFullYear() })}
+          >
+            <Text style={[styles.filterButtonText, isDarkMode && styles.filterButtonTextDark, dateFilter.type === 'month' && styles.filterButtonTextActive]}>
+              {dateFilter.type === 'month' ? `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dateFilter.month ?? 0]} ${dateFilter.year}` : 'Month'}
+            </Text>
+          </TouchableOpacity>
+
+          {dateFilter.type === 'month' && (
+            <View style={styles.monthYearSelector}>
+              <TouchableOpacity
+                style={[styles.arrowButton, isDarkMode && styles.arrowButtonDark]}
+                onPress={() => {
+                  const currentMonth = dateFilter.month ?? 0;
+                  const currentYear = dateFilter.year ?? new Date().getFullYear();
+                  const newMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+                  const newYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+                  setDateFilter({ ...dateFilter, month: newMonth, year: newYear });
+                }}
+              >
+                <Text style={styles.arrowText}>◀</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.arrowButton, isDarkMode && styles.arrowButtonDark]}
+                onPress={() => {
+                  const currentMonth = dateFilter.month ?? 0;
+                  const currentYear = dateFilter.year ?? new Date().getFullYear();
+                  const newMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+                  const newYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+                  setDateFilter({ ...dateFilter, month: newMonth, year: newYear });
+                }}
+              >
+                <Text style={styles.arrowText}>▶</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
         {isSearching && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator 
@@ -317,6 +419,57 @@ const styles = StyleSheet.create({
   },
   messageSearchInput: {
     marginTop: 8,
+  },
+  dateFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  dateFilterRowDark: {
+    backgroundColor: 'transparent',
+  },
+  filterButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 6,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  filterButtonDark: {
+    backgroundColor: '#2c2c2e',
+  },
+  filterButtonActive: {
+    backgroundColor: '#007bff',
+  },
+  filterButtonText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
+  },
+  filterButtonTextDark: {
+    color: '#fff',
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
+  monthYearSelector: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  arrowButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 6,
+  },
+  arrowButtonDark: {
+    backgroundColor: '#2c2c2e',
+  },
+  arrowText: {
+    fontSize: 14,
+    color: '#333',
   },
   loadingContainer: {
     flexDirection: 'row',

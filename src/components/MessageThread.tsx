@@ -249,7 +249,7 @@ export const MessageThread: React.FC<MessageThreadProps> = ({
         windowSize={21} // Keep more items in memory
         onScrollToIndexFailed={(info) => {
           // Fallback if scrollToIndex fails - retry with scrollToOffset
-          console.warn('ScrollToIndex failed:', info);
+          console.log('ScrollToIndex failed (expected, will retry):', info);
           console.log(`⚠️ Retrying scroll: target index ${info.index}, measured up to ${info.highestMeasuredFrameIndex}`);
 
           // Wait for more items to be rendered and measured, then retry

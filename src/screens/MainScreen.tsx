@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { CustomDatabaseService } from '../services/CustomDatabaseService';
 import { DatabasePicker } from '../components/DatabasePicker';
-import { ConversationList } from '../components/ConversationList';
+import { ConversationList, DateFilter } from '../components/ConversationList';
 import { MessageThread } from '../components/MessageThread';
 import { ChatDetails } from '../components/ChatDetails';
 import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
@@ -157,25 +157,30 @@ export const MainScreen: React.FC = () => {
     }
   };
 
-  const handleMessageSearch = async (query: string) => {
+  const handleMessageSearch = async (query: string, dateFilter?: DateFilter | null, phoneFilter?: string) => {
     setSearchQuery(query);
-    
+
     if (!query.trim()) {
       setSearchResults([]);
       return;
     }
 
     setIsSearching(true);
-    
+
     try {
-      console.log(`Searching messages for: "${query}"`);
+      const filterText = dateFilter && dateFilter.type !== 'all'
+        ? ` (${dateFilter.type === 'month' ? 'month filter' : 'day filter'})`
+        : '';
+      const phoneText = phoneFilter ? ` (phone: ${phoneFilter})` : '';
+      console.log(`Searching messages for: "${query}"${filterText}${phoneText}`);
+
       const results = await withTimeout(
-        dbService.searchMessages(query, 100), // Search up to 100 results
+        dbService.searchMessages(query, 100, dateFilter, phoneFilter), // Pass date and phone filter
         120000 // 2 minute timeout for historical search across all data
       );
-      
+
       setSearchResults(results);
-      console.log(`Found ${results.length} messages containing "${query}"`);
+      console.log(`Found ${results.length} messages containing "${query}"${filterText}${phoneText}`);
     } catch (error) {
       console.error('Error searching messages:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
