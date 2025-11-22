@@ -18,6 +18,10 @@ export interface DateFilter {
   day?: number;
 }
 
+export interface BlacklistFilter {
+  numbers: string[]; // Array of normalized phone numbers to exclude
+}
+
 interface ConversationListProps {
   chats: ProcessedChat[];
   selectedChat: ProcessedChat | null;
@@ -26,7 +30,7 @@ interface ConversationListProps {
   searchResults: ProcessedMessage[];
   searchQuery: string;
   isSearching: boolean;
-  onMessageSearch: (query: string, dateFilter?: DateFilter | null, phoneFilter?: string) => void;
+  onMessageSearch: (query: string, dateFilter?: DateFilter | null, phoneFilter?: string, blacklist?: BlacklistFilter) => void;
   onSearchResultSelected: (message: ProcessedMessage) => void;
   onToggleDarkMode: () => void;
 }
@@ -46,11 +50,21 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   const [contactSearchText, setContactSearchText] = React.useState('');
   const [messageSearchText, setMessageSearchText] = React.useState('');
   const [dateFilter, setDateFilter] = React.useState<DateFilter>({ type: 'all' });
+  const [blacklistText, setBlacklistText] = React.useState('');
+  const [showBlacklist, setShowBlacklist] = React.useState(false);
 
   // Helper function to normalize phone numbers (remove all non-digits)
   const normalizePhoneNumber = (input: string): string => {
     return input.replace(/\D/g, ''); // Remove all non-digit characters
   };
+
+  // Parse blacklist numbers
+  const blacklist: BlacklistFilter = React.useMemo(() => ({
+    numbers: blacklistText
+      .split(/[,\n]/)
+      .map(num => normalizePhoneNumber(num.trim()))
+      .filter(num => num.length > 0)
+  }), [blacklistText]);
 
   const filteredChats = React.useMemo(() => {
     if (!contactSearchText.trim()) return chats;
@@ -91,25 +105,26 @@ export const ConversationList: React.FC<ConversationListProps> = ({
     });
   }, [chats, contactSearchText]);
 
-  // Handle message search with debouncing
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      if (messageSearchText.trim() !== searchQuery) {
-        const filter = dateFilter.type === 'all' ? null : dateFilter;
-        // Pass the phone number filter (normalized) if contact search is active
-        const phoneFilter = contactSearchText.trim() ? normalizePhoneNumber(contactSearchText) : undefined;
-        console.log('🔍 ConversationList: Triggering search with:', {
-          messageSearchText,
-          contactSearchText,
-          phoneFilter,
-          hasDateFilter: filter !== null
-        });
-        onMessageSearch(messageSearchText, filter, phoneFilter);
-      }
-    }, 500); // 500ms debounce
+  // Trigger search manually
+  const handleSearch = () => {
+    if (messageSearchText.trim()) {
+      const filter = dateFilter.type === 'all' ? null : dateFilter;
+      const phoneFilter = contactSearchText.trim() ? normalizePhoneNumber(contactSearchText) : undefined;
 
-    return () => clearTimeout(timer);
-  }, [messageSearchText, searchQuery, dateFilter, contactSearchText, onMessageSearch]);
+      console.log('🔍 ConversationList: Triggering search with:', {
+        messageSearchText,
+        contactSearchText,
+        phoneFilter,
+        hasDateFilter: filter !== null,
+        blacklistCount: blacklist.numbers.length,
+        blacklistNumbers: blacklist.numbers
+      });
+      onMessageSearch(messageSearchText, filter, phoneFilter, blacklist);
+    } else {
+      // Clear search results if search text is cleared
+      onMessageSearch('', null, undefined, { numbers: [] });
+    }
+  };
 
   const renderChatItem = ({ item }: { item: ProcessedChat }) => {
     const isSelected = selectedChat?.id === item.id;
@@ -247,17 +262,29 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           value={contactSearchText}
           onChangeText={setContactSearchText}
         />
-        <TextInput
-          style={[
-            styles.searchInput,
-            styles.messageSearchInput,
-            isDarkMode && styles.searchInputDark,
-          ]}
-          placeholder="Search message content..."
-          placeholderTextColor={isDarkMode ? '#999' : '#666'}
-          value={messageSearchText}
-          onChangeText={setMessageSearchText}
-        />
+        <View style={styles.messageSearchRow}>
+          <TextInput
+            style={[
+              styles.searchInput,
+              styles.messageSearchInput,
+              isDarkMode && styles.searchInputDark,
+            ]}
+            placeholder="Search message content..."
+            placeholderTextColor={isDarkMode ? '#999' : '#666'}
+            value={messageSearchText}
+            onChangeText={setMessageSearchText}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
+          <TouchableOpacity
+            style={[styles.searchButton, isDarkMode && styles.searchButtonDark]}
+            onPress={handleSearch}
+          >
+            <Text style={[styles.searchButtonText, isDarkMode && styles.searchButtonTextDark]}>
+              Search
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Date Filter Controls */}
         <View style={[styles.dateFilterRow, isDarkMode && styles.dateFilterRowDark]}>
@@ -310,11 +337,34 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           )}
         </View>
 
+        {/* Blacklist Toggle and Input */}
+        <View style={[styles.blacklistContainer, isDarkMode && styles.blacklistContainerDark]}>
+          <TouchableOpacity
+            style={[styles.blacklistButton, isDarkMode && styles.blacklistButtonDark, showBlacklist && styles.blacklistButtonActive]}
+            onPress={() => setShowBlacklist(!showBlacklist)}
+          >
+            <Text style={[styles.blacklistButtonText, isDarkMode && styles.blacklistButtonTextDark]}>
+              {showBlacklist ? '▼' : '▶'} Blacklist {blacklistText.trim() ? `(${blacklist.numbers.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+
+          {showBlacklist && (
+            <TextInput
+              style={[styles.blacklistInput, isDarkMode && styles.blacklistInputDark]}
+              placeholder="Enter phone numbers to exclude (comma or newline separated)..."
+              placeholderTextColor={isDarkMode ? '#999' : '#666'}
+              value={blacklistText}
+              onChangeText={setBlacklistText}
+              multiline
+            />
+          )}
+        </View>
+
         {isSearching && (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator 
-              size="small" 
-              color={isDarkMode ? '#007bff' : '#007bff'} 
+            <ActivityIndicator
+              size="small"
+              color={isDarkMode ? '#007bff' : '#007bff'}
             />
             <Text style={[styles.loadingText, isDarkMode && styles.loadingTextDark]}>
               Searching...
@@ -418,7 +468,35 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   messageSearchInput: {
+    flex: 1,
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  messageSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 8,
+    marginBottom: 0,
+  },
+  searchButton: {
+    height: 40,
+    paddingHorizontal: 20,
+    backgroundColor: '#007bff',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchButtonDark: {
+    backgroundColor: '#0a84ff',
+  },
+  searchButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  searchButtonTextDark: {
+    color: '#fff',
   },
   dateFilterRow: {
     flexDirection: 'row',
@@ -609,5 +687,49 @@ const styles = StyleSheet.create({
   },
   separatorDark: {
     backgroundColor: '#38383a',
+  },
+  blacklistContainer: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+  },
+  blacklistContainerDark: {
+    backgroundColor: '#1c1c1e',
+  },
+  blacklistButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+  },
+  blacklistButtonDark: {
+    backgroundColor: '#2c2c2e',
+  },
+  blacklistButtonActive: {
+    backgroundColor: '#007bff',
+  },
+  blacklistButtonText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
+  },
+  blacklistButtonTextDark: {
+    color: '#fff',
+  },
+  blacklistInput: {
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    fontSize: 13,
+    minHeight: 60,
+    maxHeight: 120,
+    color: '#333',
+  },
+  blacklistInputDark: {
+    backgroundColor: '#2c2c2e',
+    borderColor: '#38383a',
+    color: '#fff',
   },
 });

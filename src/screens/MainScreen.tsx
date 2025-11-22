@@ -157,7 +157,7 @@ export const MainScreen: React.FC = () => {
     }
   };
 
-  const handleMessageSearch = async (query: string, dateFilter?: DateFilter | null, phoneFilter?: string) => {
+  const handleMessageSearch = async (query: string, dateFilter?: DateFilter | null, phoneFilter?: string, blacklist?: any) => {
     setSearchQuery(query);
 
     if (!query.trim()) {
@@ -172,15 +172,16 @@ export const MainScreen: React.FC = () => {
         ? ` (${dateFilter.type === 'month' ? 'month filter' : 'day filter'})`
         : '';
       const phoneText = phoneFilter ? ` (phone: ${phoneFilter})` : '';
-      console.log(`Searching messages for: "${query}"${filterText}${phoneText}`);
+      const blacklistText = blacklist?.numbers?.length > 0 ? ` (blacklist: ${blacklist.numbers.length} numbers)` : '';
+      console.log(`Searching messages for: "${query}"${filterText}${phoneText}${blacklistText}`);
 
       const results = await withTimeout(
-        dbService.searchMessages(query, 100, dateFilter, phoneFilter), // Pass date and phone filter
+        dbService.searchMessages(query, 100, dateFilter, phoneFilter, blacklist), // Pass all filters
         120000 // 2 minute timeout for historical search across all data
       );
 
       setSearchResults(results);
-      console.log(`Found ${results.length} messages containing "${query}"${filterText}${phoneText}`);
+      console.log(`Found ${results.length} messages containing "${query}"${filterText}${phoneText}${blacklistText}`);
     } catch (error) {
       console.error('Error searching messages:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -200,10 +201,8 @@ export const MainScreen: React.FC = () => {
       // Set highlighted message first
       setHighlightedMessageId(message.id);
 
-      // Select the chat and clear search
+      // Select the chat (keep search results visible)
       setSelectedChat(chat);
-      setSearchQuery('');
-      setSearchResults([]);
 
       // Load messages around the highlighted message for focused context
       setIsLoading(true);

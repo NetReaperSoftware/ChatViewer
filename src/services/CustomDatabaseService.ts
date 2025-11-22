@@ -545,7 +545,7 @@ Path attempted: ${expandedPath}
     return appleSeconds * 1e9; // Convert to nanoseconds
   }
 
-  async searchMessages(searchTerm: string, limit: number = 100, dateFilter?: any, phoneFilter?: string): Promise<ProcessedMessage[]> {
+  async searchMessages(searchTerm: string, limit: number = 100, dateFilter?: any, phoneFilter?: string, blacklist?: any): Promise<ProcessedMessage[]> {
     if (!this.connected) {
       throw new Error('Database is not open');
     }
@@ -569,7 +569,8 @@ Path attempted: ${expandedPath}
 
     const filterText = dateFilter && dateFilter.type !== 'all' ? ' with date filter' : '';
     const phoneText = phoneFilter ? ` with phone filter: ${phoneFilter}` : '';
-    console.log(`🔍 Historical search for: "${searchTerm}"${filterText}${phoneText} (${limit} results)`);
+    const blacklistText = blacklist?.numbers?.length > 0 ? ` with blacklist: [${blacklist.numbers.join(', ')}]` : '';
+    console.log(`🔍 Historical search for: "${searchTerm}"${filterText}${phoneText}${blacklistText} (${limit} results)`);
 
     try {
       console.log(`🔍 Phase 1: SQL search${filterText}${phoneText}`);
@@ -674,15 +675,35 @@ Path attempted: ${expandedPath}
       }
       
       // Combine all results
-      const allMatches = [...messages, ...attributedBodyMatches];
-      
+      let allMatches = [...messages, ...attributedBodyMatches];
+
+      // Apply blacklist filter if provided
+      if (blacklist?.numbers && blacklist.numbers.length > 0) {
+        const normalizePhoneNumber = (phone: string) => phone.replace(/\D/g, '');
+        const beforeBlacklist = allMatches.length;
+
+        allMatches = allMatches.filter((msg) => {
+          const msgPhone = normalizePhoneNumber(msg.handle_name || '');
+          const chatPhone = normalizePhoneNumber(msg.chat_identifier || '');
+
+          // Exclude if phone number is in blacklist
+          const isBlacklisted = blacklist.numbers.some((blacklistedNum: string) =>
+            msgPhone.includes(blacklistedNum) || chatPhone.includes(blacklistedNum)
+          );
+
+          return !isBlacklisted;
+        });
+
+        console.log(`🚫 Blacklist filtered out ${beforeBlacklist - allMatches.length} messages`);
+      }
+
       // Sort by date (most recent first) and limit to requested amount
       const sortedMatches = allMatches
         .sort((a, b) => b.date - a.date)
         .slice(0, limit);
-      
+
       console.log(`📊 Total historical results: ${allMatches.length}, returning top ${sortedMatches.length}`);
-      
+
       const processedMessages: ProcessedMessage[] = sortedMatches.map((msg) => ({
         id: msg.id,
         text: this.extractMessageText(msg),

@@ -5,11 +5,14 @@ import SQLite3
 class ChatDatabaseManager: NSObject {
     private var db: OpaquePointer?
     private var dbPath: String?
-    
+
+    // Serial queue to ensure all database operations happen on the same thread
+    private let dbQueue = DispatchQueue(label: "com.chatviewer.database", qos: .userInitiated)
+
     // MARK: - Database Management
     
     @objc func openDatabase(_ path: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        dbQueue.async { [weak self] in
             guard let self = self else {
                 reject("MANAGER_NIL", "Database manager is nil", nil)
                 return
@@ -242,7 +245,7 @@ class ChatDatabaseManager: NSObject {
     // MARK: - Query Execution
     
     @objc func executeQuery(_ sql: String, params: [Any], resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        dbQueue.async { [weak self] in
             guard let self = self else {
                 reject("MANAGER_NIL", "Database manager is nil", nil)
                 return
