@@ -10,13 +10,23 @@ import {
   Switch,
 } from 'react-native';
 import { ProcessedChat, ProcessedMessage } from '../types/DatabaseTypes';
+import { DateRangeSelector, SimpleDate } from './DateRangeSelector';
 
 export interface DateFilter {
-  type: 'all' | 'month' | 'day';
-  year?: number;
-  month?: number; // 0-11
-  day?: number;
+  type: 'all' | 'range';
+  start?: SimpleDate;
+  end?: SimpleDate; // inclusive
 }
+
+// Default range: first of the current month through today
+const defaultRange = (): DateFilter => {
+  const now = new Date();
+  return {
+    type: 'range',
+    start: { year: now.getFullYear(), month: now.getMonth(), day: 1 },
+    end: { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() },
+  };
+};
 
 export interface BlacklistFilter {
   numbers: string[]; // Array of normalized phone numbers to exclude
@@ -298,44 +308,23 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.filterButton, isDarkMode && styles.filterButtonDark, dateFilter.type === 'month' && styles.filterButtonActive]}
-            onPress={() => setDateFilter({ type: 'month', month: new Date().getMonth(), year: new Date().getFullYear() })}
+            style={[styles.filterButton, isDarkMode && styles.filterButtonDark, dateFilter.type === 'range' && styles.filterButtonActive]}
+            onPress={() => dateFilter.type !== 'range' && setDateFilter(defaultRange())}
           >
-            <Text style={[styles.filterButtonText, isDarkMode && styles.filterButtonTextDark, dateFilter.type === 'month' && styles.filterButtonTextActive]}>
-              {dateFilter.type === 'month' ? `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dateFilter.month ?? 0]} ${dateFilter.year}` : 'Month'}
+            <Text style={[styles.filterButtonText, isDarkMode && styles.filterButtonTextDark, dateFilter.type === 'range' && styles.filterButtonTextActive]}>
+              Date range
             </Text>
           </TouchableOpacity>
-
-          {dateFilter.type === 'month' && (
-            <View style={styles.monthYearSelector}>
-              <TouchableOpacity
-                style={[styles.arrowButton, isDarkMode && styles.arrowButtonDark]}
-                onPress={() => {
-                  const currentMonth = dateFilter.month ?? 0;
-                  const currentYear = dateFilter.year ?? new Date().getFullYear();
-                  const newMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-                  const newYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-                  setDateFilter({ ...dateFilter, month: newMonth, year: newYear });
-                }}
-              >
-                <Text style={styles.arrowText}>◀</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.arrowButton, isDarkMode && styles.arrowButtonDark]}
-                onPress={() => {
-                  const currentMonth = dateFilter.month ?? 0;
-                  const currentYear = dateFilter.year ?? new Date().getFullYear();
-                  const newMonth = currentMonth === 11 ? 0 : currentMonth + 1;
-                  const newYear = currentMonth === 11 ? currentYear + 1 : currentYear;
-                  setDateFilter({ ...dateFilter, month: newMonth, year: newYear });
-                }}
-              >
-                <Text style={styles.arrowText}>▶</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
+
+        {dateFilter.type === 'range' && dateFilter.start && dateFilter.end && (
+          <DateRangeSelector
+            start={dateFilter.start}
+            end={dateFilter.end}
+            onChange={(start, end) => setDateFilter({ type: 'range', start, end })}
+            isDarkMode={isDarkMode}
+          />
+        )}
 
         {/* Blacklist Toggle and Input */}
         <View style={[styles.blacklistContainer, isDarkMode && styles.blacklistContainerDark]}>
@@ -410,7 +399,7 @@ const formatTimestamp = (date: Date): string => {
   } else if (diffInHours < 24 * 7) {
     return date.toLocaleDateString([], { weekday: 'short' });
   } else {
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   }
 };
 
@@ -531,23 +520,6 @@ const styles = StyleSheet.create({
   },
   filterButtonTextActive: {
     color: '#fff',
-  },
-  monthYearSelector: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  arrowButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 6,
-  },
-  arrowButtonDark: {
-    backgroundColor: '#2c2c2e',
-  },
-  arrowText: {
-    fontSize: 14,
-    color: '#333',
   },
   loadingContainer: {
     flexDirection: 'row',

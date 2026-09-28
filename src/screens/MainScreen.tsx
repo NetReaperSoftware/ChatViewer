@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -31,14 +31,9 @@ export const MainScreen: React.FC = () => {
   const [darkModeOverride, setDarkModeOverride] = useState<boolean | null>(null);
   const isDarkMode = darkModeOverride !== null ? darkModeOverride : systemColorScheme === 'dark';
 
-  useEffect(() => {
-    return () => {
-      // Cleanup database connection on unmount
-      if (dbService.isConnected()) {
-        dbService.closeDatabase().catch(() => {}); // Ignore cleanup errors
-      }
-    };
-  }, [dbService]);
+  // The native module closes the database in its deinit when the bridge tears down.
+  // Don't close it from an effect cleanup: Fast Refresh re-runs cleanups on every
+  // code edit, which would close the DB while the UI still shows it as open.
 
   const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     return Promise.race([
@@ -169,7 +164,7 @@ export const MainScreen: React.FC = () => {
 
     try {
       const filterText = dateFilter && dateFilter.type !== 'all'
-        ? ` (${dateFilter.type === 'month' ? 'month filter' : 'day filter'})`
+        ? ' (date range filter)'
         : '';
       const phoneText = phoneFilter ? ` (phone: ${phoneFilter})` : '';
       const blacklistText = blacklist?.numbers?.length > 0 ? ` (blacklist: ${blacklist.numbers.length} numbers)` : '';

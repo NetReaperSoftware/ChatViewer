@@ -234,6 +234,12 @@ class ChatDatabaseManager: NSObject {
         print("✅ Search indices configured")
     }
 
+    deinit {
+        if let db = db {
+            sqlite3_close(db)
+        }
+    }
+
     @objc func closeDatabase() {
         if let db = self.db {
             sqlite3_close(db)

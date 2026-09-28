@@ -554,12 +554,10 @@ Path attempted: ${expandedPath}
     let endDate: number = -1;
 
     // Convert date filter to Apple timestamps
-    if (dateFilter && dateFilter.type === 'month') {
-      const year = dateFilter.year ?? new Date().getFullYear();
-      const month = dateFilter.month ?? 0;
-
-      const start = new Date(year, month, 1, 0, 0, 0);
-      const end = new Date(year, month + 1, 0, 23, 59, 59);
+    if (dateFilter && dateFilter.type === 'range' && dateFilter.start && dateFilter.end) {
+      const { start: s, end: e } = dateFilter;
+      const start = new Date(s.year, s.month, s.day, 0, 0, 0, 0);
+      const end = new Date(e.year, e.month, e.day, 23, 59, 59, 999);
 
       startDate = this.convertJsDateToAppleTimestamp(start);
       endDate = this.convertJsDateToAppleTimestamp(end);
