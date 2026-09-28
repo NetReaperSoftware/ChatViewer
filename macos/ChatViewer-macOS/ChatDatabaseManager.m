@@ -9,6 +9,10 @@ RCT_EXTERN_METHOD(openDatabase:(NSString *)path
 
 RCT_EXTERN_METHOD(closeDatabase)
 
+// Finder open panel for choosing a database file or folder
+RCT_EXTERN_METHOD(pickDatabase:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // Generic query execution
 RCT_EXTERN_METHOD(executeQuery:(NSString *)sql
                   params:(NSArray *)params

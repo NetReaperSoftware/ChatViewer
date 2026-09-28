@@ -4,6 +4,7 @@ import { NativeModules } from 'react-native';
 interface ChatDatabaseModuleInterface {
   openDatabase(path: string): Promise<{success: boolean; path: string}>;
   closeDatabase(): void;
+  pickDatabase(): Promise<string | null>;
   executeQuery(sql: string, params: any[]): Promise<{rows: any[]; count: number}>;
   getChats(limit?: number): Promise<{rows: any[]; count: number}>;
   searchMessages(searchTerm: string, limit: number, startDate: number, endDate: number, phoneFilter: string): Promise<{rows: any[]; count: number}>;

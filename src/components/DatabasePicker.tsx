@@ -7,7 +7,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-// import { pickFile } from 'react-native-document-picker-macos';
+import ChatDatabaseModule from '../services/ChatDatabaseModule';
 import { getDefaultMessagesPath } from '../utils/PathUtils';
 
 interface DatabasePickerProps {
@@ -21,38 +21,19 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
 }) => {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  const handleFilePicker = () => {
-    Alert.alert(
-      'File Picker Not Available',
-      'Native file picker is not available in this build. Please use "Manual Path" to enter the path to your chat.db file.\n\nDefault location: ~/Library/Messages/chat.db',
-      [
-        { text: 'OK', style: 'default' },
-        {
-          text: 'Use Manual Path',
-          onPress: () => {
-            const defaultPath = getDefaultMessagesPath();
-            Alert.prompt(
-              'Enter Database Path',
-              'Enter the full path to your chat.db file:',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Open',
-                  onPress: (customPath) => {
-                    if (customPath && customPath.trim()) {
-                      setSelectedPath(customPath.trim());
-                      onDatabaseSelected(customPath.trim());
-                    }
-                  },
-                },
-              ],
-              'plain-text',
-              defaultPath
-            );
-          },
-        },
-      ]
-    );
+  const handleFilePicker = async () => {
+    try {
+      const path = await ChatDatabaseModule.pickDatabase();
+      if (path) {
+        setSelectedPath(path);
+        onDatabaseSelected(path);
+      }
+    } catch (error: any) {
+      Alert.alert(
+        'Could Not Use Selection',
+        error?.message ?? 'Failed to open the file picker.'
+      );
+    }
   };
 
   const handleSelectDatabase = () => {
@@ -142,7 +123,7 @@ export const DatabasePicker: React.FC<DatabasePickerProps> = ({
         <View style={styles.infoContainer}>
           <Text style={styles.infoTitle}>Usage Instructions:</Text>
           <Text style={styles.infoText}>
-            • Browse Files: Shows manual path dialog (file picker not available)
+            • Browse Files: Pick a chat.db file, or a folder containing one, in Finder
           </Text>
           <Text style={styles.infoText}>
             • Test DB: Create a sample database for testing

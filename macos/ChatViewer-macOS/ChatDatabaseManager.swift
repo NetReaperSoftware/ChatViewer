@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SQLite3
 
@@ -531,9 +532,72 @@ class ChatDatabaseManager: NSObject {
         executeQuery(sql, params: [chatId, limit, offset], resolver: resolve, rejecter: reject)
     }
     
+    // MARK: - File Picker
+
+    /// Shows a Finder open panel. The user can pick a database file directly, or a folder
+    /// containing chat.db. Resolves with the database path, or nil if the user cancels.
+    @objc func pickDatabase(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        // RN promise blocks are safe to call from any thread; box them so they can cross into the main actor
+        let promise = PromiseBox(resolve: resolve, reject: reject)
+        DispatchQueue.main.async {
+            let panel = NSOpenPanel()
+            panel.title = "Select Messages Database"
+            panel.message = "Choose a chat.db file, or a folder that contains one."
+            panel.prompt = "Open"
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = false
+            panel.showsHiddenFiles = false
+
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let startDir = home.appendingPathComponent("Library/Messages")
+            panel.directoryURL = FileManager.default.fileExists(atPath: startDir.path) ? startDir : home
+
+            let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+                guard response == .OK, let url = panel.url else {
+                    promise.resolve(nil)
+                    return
+                }
+
+                var isDir: ObjCBool = false
+                FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+
+                if isDir.boolValue {
+                    let dbURL = url.appendingPathComponent("chat.db")
+                    guard FileManager.default.fileExists(atPath: dbURL.path) else {
+                        promise.reject("NO_CHAT_DB", "No chat.db found in folder: \(url.path)", nil)
+                        return
+                    }
+                    print("📂 Selected folder, using database: \(dbURL.path)")
+                    promise.resolve(dbURL.path)
+                } else {
+                    print("📄 Selected database file: \(url.path)")
+                    promise.resolve(url.path)
+                }
+            }
+
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                panel.beginSheetModal(for: window, completionHandler: handleResponse)
+            } else {
+                handleResponse(panel.runModal())
+            }
+        }
+    }
+
     // MARK: - React Native Module Requirements
     
     @objc static func requiresMainQueueSetup() -> Bool {
         return false
+    }
+}
+
+private final class PromiseBox: @unchecked Sendable {
+    let resolve: RCTPromiseResolveBlock
+    let reject: RCTPromiseRejectBlock
+
+    init(resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        self.resolve = resolve
+        self.reject = reject
     }
 }
