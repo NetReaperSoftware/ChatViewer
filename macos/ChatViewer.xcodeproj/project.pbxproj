@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		13C1E22C58DA6811C059FC51 /* libPods-ChatViewer-macOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 92489FF259C8D7D49C610384 /* libPods-ChatViewer-macOS.a */; };
 		5142014D2437B4B30078DB4F /* AppDelegate.mm in Sources */ = {isa = PBXBuildFile; fileRef = 5142014C2437B4B30078DB4F /* AppDelegate.mm */; };
 		514201522437B4B40078DB4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 514201512437B4B40078DB4F /* Assets.xcassets */; };
 		514201552437B4B40078DB4F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 514201532437B4B40078DB4F /* Main.storyboard */; };
 		514201582437B4B40078DB4F /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 514201572437B4B40078DB4F /* main.m */; };
 		65639FFF2E3AB604000F3540 /* ChatDatabaseManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 65639FFD2E3AB604000F3540 /* ChatDatabaseManager.m */; };
 		6563A0002E3AB604000F3540 /* ChatDatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65639FFE2E3AB604000F3540 /* ChatDatabaseManager.swift */; };
-		A7C00708C02C2395E82A0D8E /* libPods-ChatViewer-macOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C230BB5ECBF2401A2B3DF3D3 /* libPods-ChatViewer-macOS.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,12 +26,12 @@
 		514201562437B4B40078DB4F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		514201572437B4B40078DB4F /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		514201592437B4B40078DB4F /* ChatViewer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ChatViewer.entitlements; sourceTree = "<group>"; };
-		64E05089F721B40FA58F63B0 /* Pods-ChatViewer-macOS.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ChatViewer-macOS.debug.xcconfig"; path = "Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS.debug.xcconfig"; sourceTree = "<group>"; };
 		65639FFD2E3AB604000F3540 /* ChatDatabaseManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChatDatabaseManager.m; sourceTree = "<group>"; };
 		65639FFE2E3AB604000F3540 /* ChatDatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDatabaseManager.swift; sourceTree = "<group>"; };
 		6563A0012E3AB61D000F3540 /* ChatViewer-macOS-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ChatViewer-macOS-Bridging-Header.h"; sourceTree = "<group>"; };
-		6FC5ED8321E91D33EAC28E52 /* Pods-ChatViewer-macOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ChatViewer-macOS.release.xcconfig"; path = "Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS.release.xcconfig"; sourceTree = "<group>"; };
-		C230BB5ECBF2401A2B3DF3D3 /* libPods-ChatViewer-macOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ChatViewer-macOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		75BF871BDF082480755DCE0C /* Pods-ChatViewer-macOS.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ChatViewer-macOS.debug.xcconfig"; path = "Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS.debug.xcconfig"; sourceTree = "<group>"; };
+		92489FF259C8D7D49C610384 /* libPods-ChatViewer-macOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ChatViewer-macOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A349F4DF4ADB22D03F47CC52 /* Pods-ChatViewer-macOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ChatViewer-macOS.release.xcconfig"; path = "Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS.release.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -47,7 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A7C00708C02C2395E82A0D8E /* libPods-ChatViewer-macOS.a in Frameworks */,
+				13C1E22C58DA6811C059FC51 /* libPods-ChatViewer-macOS.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -58,7 +58,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				C230BB5ECBF2401A2B3DF3D3 /* libPods-ChatViewer-macOS.a */,
+				92489FF259C8D7D49C610384 /* libPods-ChatViewer-macOS.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -113,8 +113,8 @@
 		8FC2D6EE55EFCF6A30238863 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				64E05089F721B40FA58F63B0 /* Pods-ChatViewer-macOS.debug.xcconfig */,
-				6FC5ED8321E91D33EAC28E52 /* Pods-ChatViewer-macOS.release.xcconfig */,
+				75BF871BDF082480755DCE0C /* Pods-ChatViewer-macOS.debug.xcconfig */,
+				A349F4DF4ADB22D03F47CC52 /* Pods-ChatViewer-macOS.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -145,13 +145,13 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 5142015A2437B4B40078DB4F /* Build configuration list for PBXNativeTarget "ChatViewer-macOS" */;
 			buildPhases = (
-				C7A4BD4535D1DEC0B488209C /* [CP] Check Pods Manifest.lock */,
+				6C672E6D294ED1483BF335A3 /* [CP] Check Pods Manifest.lock */,
 				381D8A6F24576A6C00465D17 /* Start Packager */,
 				514201452437B4B30078DB4F /* Sources */,
 				514201462437B4B30078DB4F /* Frameworks */,
 				514201472437B4B30078DB4F /* Resources */,
 				381D8A6E24576A4E00465D17 /* Bundle React Native code and images */,
-				379C4E89FC4B1AEC6BFF2562 /* [CP] Copy Pods Resources */,
+				AF58ACA9FC8A560D214DE3A8 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -233,24 +233,6 @@
 			shellPath = /bin/sh;
 			shellScript = "export NODE_BINARY=node\n../node_modules/react-native-macos/scripts/react-native-xcode.sh\n";
 		};
-		379C4E89FC4B1AEC6BFF2562 /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS-resources.sh",
-				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/AccessibilityResources.bundle",
-			);
-			name = "[CP] Copy Pods Resources";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AccessibilityResources.bundle",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
 		381D8A6E24576A4E00465D17 /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -287,7 +269,7 @@
 			shellPath = /bin/sh;
 			shellScript = "export RCT_METRO_PORT=\"${RCT_METRO_PORT:=8081}\"\necho \"export RCT_METRO_PORT=${RCT_METRO_PORT}\" > \"${SRCROOT}/../node_modules/react-native-macos/scripts/.packager.env\"\nif [ -z \"${RCT_NO_LAUNCH_PACKAGER+xxx}\" ] ; then\n  if nc -w 5 -z localhost ${RCT_METRO_PORT} ; then\n    if ! curl -s \"http://localhost:${RCT_METRO_PORT}/status\" | grep -q \"packager-status:running\" ; then\n      echo \"Port ${RCT_METRO_PORT} already in use, packager is either not running or not running correctly\"\n      exit 2\n    fi\n  else\n    open \"$SRCROOT/../node_modules/react-native-macos/scripts/launchPackager.command\" || echo \"Can't start packager automatically\"\n  fi\nfi\n";
 		};
-		C7A4BD4535D1DEC0B488209C /* [CP] Check Pods Manifest.lock */ = {
+		6C672E6D294ED1483BF335A3 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -307,6 +289,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		AF58ACA9FC8A560D214DE3A8 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/AccessibilityResources.bundle",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AccessibilityResources.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ChatViewer-macOS/Pods-ChatViewer-macOS-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		FD10A7F022414F080027D42C /* Start Packager */ = {
@@ -407,7 +407,7 @@
 		};
 		5142015B2437B4B40078DB4F /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 64E05089F721B40FA58F63B0 /* Pods-ChatViewer-macOS.debug.xcconfig */;
+			baseConfigurationReference = 75BF871BDF082480755DCE0C /* Pods-ChatViewer-macOS.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -432,7 +432,7 @@
 		};
 		5142015C2437B4B40078DB4F /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 6FC5ED8321E91D33EAC28E52 /* Pods-ChatViewer-macOS.release.xcconfig */;
+			baseConfigurationReference = A349F4DF4ADB22D03F47CC52 /* Pods-ChatViewer-macOS.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
